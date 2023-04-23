@@ -19,40 +19,52 @@ fn main() {
     std::process::exit(exit_code);
 }
 
+struct OpDecoderLookup {
+    map: HashMap<u8, Box<dyn OpCodeDecoder>>,
+}
+
+impl OpDecoderLookup {
+    fn new() -> OpDecoderLookup {
+        OpDecoderLookup {
+            map: HashMap::new(),
+        }
+    }
+
+    fn insert<D: OpCodeDecoder + Clone + 'static>(&mut self, pattern: &str, decoder: D) {
+        let pattern = pattern.strip_prefix("0b").unwrap_or(pattern);
+        let pattern = pattern.replace('_', "");
+
+        let mut v = vec![];
+        Self::expand(&pattern, &mut v);
+
+        for b in v {
+            self.map.insert(b, Box::new(decoder.clone()));
+        }
+    }
+
+    fn get(&self, opcode: &u8) -> Option<&Box<dyn OpCodeDecoder>> {
+        self.map.get(opcode)
+    }
+
+    fn expand(i: &str, v: &mut Vec<u8>) {
+        if i.chars().all(|c| c == '1' || c == '0') {
+            let p = u8::from_str_radix(i, 2).expect(&format!("could not parse {i}"));
+            v.push(p);
+        } else {
+            Self::expand(&i.replacen(|c| !char::is_numeric(c), "0", 1), v);
+            Self::expand(&i.replacen(|c| !char::is_numeric(c), "1", 1), v);
+        }
+    }
+}
+
 fn encode_to_assembler<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-    let mut lookup: HashMap<u8, Box<dyn OpCodeDecoder>> = HashMap::new();
-    lookup.insert(0b1000_1000, Box::new(MovDecoder {}));
-    lookup.insert(0b1000_1001, Box::new(MovDecoder {}));
-    lookup.insert(0b1000_1010, Box::new(MovDecoder {}));
-    lookup.insert(0b1000_1011, Box::new(MovDecoder {}));
+    let mut l = OpDecoderLookup::new();
+    l.insert("0b1000_10dw", MovDecoder {});
+    l.insert("0b1100_011w", ImmediateMovToRegMemDecoder {});
+    l.insert("0b1011_wreg", ImmediateMovToRegDecoder {});
+    l.insert("0b1010_00dw", MovAccumulatorDecoder {});
 
-    lookup.insert(0b1100_0110, Box::new(ImmediateMovToRegMemDecoder {}));
-    lookup.insert(0b1100_0111, Box::new(ImmediateMovToRegMemDecoder {}));
-
-    lookup.insert(0b1011_0000, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_0001, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_0010, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_0011, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_0100, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_0101, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_0110, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_0111, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_1000, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_1001, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_1010, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_1011, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_1100, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_1101, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_1110, Box::new(ImmediateMovToRegDecoder {}));
-    lookup.insert(0b1011_1111, Box::new(ImmediateMovToRegDecoder {}));
-
-    
-    lookup.insert(0b1010_0000, Box::new(MovAccumulatorDecoder {}));
-    lookup.insert(0b1010_0001, Box::new(MovAccumulatorDecoder {}));
-    lookup.insert(0b1010_0010, Box::new(MovAccumulatorDecoder {}));
-    lookup.insert(0b1010_0011, Box::new(MovAccumulatorDecoder {}));
-
-    let lookup = lookup;
+    let lookup = l;
 
     let bytes = fs::read(path)?;
     let mut iter = bytes.iter();
@@ -67,7 +79,7 @@ fn encode_to_assembler<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
         let decoder = lookup
             .get(byte)
             .expect(&format!("no decoder found for {byte:#b}"));
-        let code = decoder.decode(byte.clone(), &mut iter);
+        let code = decoder.decode(*byte, &mut iter);
         println!("{}", code.encode());
     }
     Ok(())
@@ -111,14 +123,14 @@ enum OpCode {
     },
     AccumulatorMove {
         dir: Direction,
-        addr: i16
-    }
+        addr: i16,
+    },
 }
 
 impl OpCode {
     fn encode(&self) -> String {
-        match self {
-            &OpCode::Mov {
+        match *self {
+            OpCode::Mov {
                 dir,
                 reg,
                 ref reg_or_mem,
@@ -126,26 +138,26 @@ impl OpCode {
                 Direction::FromRegister => format!("mov {reg_or_mem}, {reg}"),
                 Direction::ToRegister => format!("mov {reg}, {reg_or_mem}"),
             },
-            &OpCode::ImmediateMovRegMem {
+            OpCode::ImmediateMovRegMem {
                 size,
                 ref reg_or_mem,
                 data,
             } => {
-                format!("mov {reg_or_mem}, {} {data}", match size {
-                    OpSize::Byte => "byte",
-                    OpSize::Word => "word"
-                })
+                format!(
+                    "mov {reg_or_mem}, {} {data}",
+                    match size {
+                        OpSize::Byte => "byte",
+                        OpSize::Word => "word",
+                    }
+                )
             }
-            &OpCode::ImmediateMovReg { reg, data } => {
+            OpCode::ImmediateMovReg { reg, data } => {
                 format!("mov {reg}, {data}")
-            },
-            &OpCode::AccumulatorMove { dir, addr } => {
-                match dir {
-                    Direction::FromRegister => format!("mov [{addr}], ax"),
-                    Direction::ToRegister => format!("mov ax, [{addr}]")
-                }
-
             }
+            OpCode::AccumulatorMove { dir, addr } => match dir {
+                Direction::FromRegister => format!("mov [{addr}], ax"),
+                Direction::ToRegister => format!("mov ax, [{addr}]"),
+            },
         }
     }
 }
@@ -154,6 +166,7 @@ trait OpCodeDecoder {
     fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode;
 }
 
+#[derive(Clone, Copy)]
 struct MovDecoder {}
 
 impl MovDecoder {
@@ -175,7 +188,7 @@ impl OpCodeDecoder for MovDecoder {
         };
 
         let next = bytes.next().unwrap();
-        let mode = (next.clone() >> 6) & 0b0000_0011;
+        let mode = (*next >> 6) & 0b0000_0011;
         let mode = match mode {
             0 => Mode::MemoryNoDisplacement,
             1 => Mode::MemoryEightBitDisplacement,
@@ -184,7 +197,7 @@ impl OpCodeDecoder for MovDecoder {
             _ => panic!("impossible, we masked out exactly 2 bits"),
         };
 
-        let reg = decode_reg((next.clone() >> 3) & 0b0000_0111, size);
+        let reg = decode_reg((*next >> 3) & 0b0000_0111, size);
         let reg_or_mem = next & 0b0000_0111;
 
         let reg_or_mem = match mode {
@@ -192,18 +205,26 @@ impl OpCodeDecoder for MovDecoder {
             Mode::MemoryNoDisplacement if reg_or_mem == 6 => {
                 let direct = match size {
                     OpSize::Byte => decode_i8(bytes.next().unwrap()),
-                    OpSize::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap())
+                    OpSize::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
                 };
                 format!("[{}]", direct)
-            },
+            }
             Mode::MemoryNoDisplacement => format!("[{}]", effective_address_base(reg_or_mem)),
             Mode::MemoryEightBitDisplacement => {
                 let displacement = decode_i8(bytes.next().unwrap());
-                format!("[{}{}]", effective_address_base(reg_or_mem), format_displacement(displacement))
+                format!(
+                    "[{}{}]",
+                    effective_address_base(reg_or_mem),
+                    format_displacement(displacement)
+                )
             }
             Mode::MemorySixteenBitDisplacement => {
                 let displacement = decode_i16(bytes.next().unwrap(), bytes.next().unwrap());
-                format!("[{}{}]", effective_address_base(reg_or_mem), format_displacement(displacement))
+                format!(
+                    "[{}{}]",
+                    effective_address_base(reg_or_mem),
+                    format_displacement(displacement)
+                )
             }
         };
 
@@ -221,12 +242,13 @@ fn format_displacement(displacement: i16) -> String {
     } else if displacement > 0 {
         format!(" + {displacement}")
     } else if displacement == -256 {
-        format!(" - 256")
+        " - 256".to_string()
     } else {
         format!(" - {}", -displacement)
     }
 }
 
+#[derive(Clone)]
 struct ImmediateMovToRegMemDecoder {}
 
 impl ImmediateMovToRegMemDecoder {
@@ -242,7 +264,7 @@ impl OpCodeDecoder for ImmediateMovToRegMemDecoder {
         };
 
         let next = bytes.next().unwrap();
-        let mode = (next.clone() >> 6) & 0b0000_0011;
+        let mode = (*next >> 6) & 0b0000_0011;
         let mode = match mode {
             0 => Mode::MemoryNoDisplacement,
             1 => Mode::MemoryEightBitDisplacement,
@@ -258,7 +280,7 @@ impl OpCodeDecoder for ImmediateMovToRegMemDecoder {
             Mode::MemoryNoDisplacement if reg_or_mem == 6 => {
                 let direct = match size {
                     OpSize::Byte => decode_i8(bytes.next().unwrap()),
-                    OpSize::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap())
+                    OpSize::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
                 };
                 format!("[{}]", direct)
             }
@@ -295,10 +317,15 @@ impl OpCodeDecoder for ImmediateMovToRegMemDecoder {
             OpSize::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
         };
 
-        OpCode::ImmediateMovRegMem { size, reg_or_mem, data }
+        OpCode::ImmediateMovRegMem {
+            size,
+            reg_or_mem,
+            data,
+        }
     }
 }
 
+#[derive(Clone)]
 struct ImmediateMovToRegDecoder {}
 
 impl ImmediateMovToRegDecoder {
@@ -325,6 +352,7 @@ impl OpCodeDecoder for ImmediateMovToRegDecoder {
     }
 }
 
+#[derive(Clone)]
 struct MovAccumulatorDecoder {}
 
 impl MovAccumulatorDecoder {
@@ -343,9 +371,6 @@ impl OpCodeDecoder for MovAccumulatorDecoder {
         } else {
             Direction::ToRegister
         };
-
-        let reg = code & 0b0000_0111;
-        let reg = decode_reg(reg, size);
 
         let address: i16 = match size {
             OpSize::Byte => decode_i8(bytes.next().unwrap()),
@@ -371,12 +396,11 @@ fn effective_address_base(mem: u8) -> &'static str {
 }
 
 fn decode_i8(lo: &u8) -> i16 {
-    i8::from_le_bytes([lo.clone()]) as i16
+    i8::from_le_bytes([*lo]) as i16
 }
 
 fn decode_i16(lo: &u8, hi: &u8) -> i16 {
-    let r = i16::from_le_bytes([lo.clone(), hi.clone()]);
-    r
+    i16::from_le_bytes([*lo, *hi])
 }
 
 fn decode_reg(reg: u8, size: OpSize) -> &'static str {
