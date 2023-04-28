@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::path::Path;
 use std::{env, fs};
 
@@ -64,6 +65,10 @@ fn encode_to_assembler<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     l.insert("0b1011_wreg", ImmediateMovToRegDecoder {});
     l.insert("0b1010_00dw", MovAccumulatorDecoder {});
 
+    l.insert("0b00xx_x0dw", ArithmeticFromToRegMemDecoder {});
+    l.insert("0b1000_00sw", ArithmeticImmediateToRegMemDecoder {});
+    l.insert("0b00xx_x1dw", ArithmeticImmediateToAccumulatorDecoder {});
+
     let lookup = l;
 
     let bytes = fs::read(path)?;
@@ -92,9 +97,18 @@ enum Direction {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum OpSize {
+enum OpWidth {
     Byte,
     Word,
+}
+
+impl Display for OpWidth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            OpWidth::Byte => f.write_str("byte"),
+            OpWidth::Word => f.write_str("word"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -107,13 +121,13 @@ enum Mode {
 
 #[derive(Debug, Clone)]
 enum OpCode {
-    Mov {
+    MovToFromRegMem {
         dir: Direction,
         reg: &'static str,
         reg_or_mem: String,
     },
     ImmediateMovRegMem {
-        size: OpSize,
+        width: OpWidth,
         reg_or_mem: String,
         data: i16,
     },
@@ -125,12 +139,29 @@ enum OpCode {
         dir: Direction,
         addr: i16,
     },
+    ArithmeticFromToRegMem {
+        op: ArithmeticOp,
+        dir: Direction,
+        reg: &'static str,
+        reg_or_mem: String,
+    },
+    ArithmeticImmediateToRegMem {
+        op: ArithmeticOp,
+        width: OpWidth,
+        data: i16,
+        reg_or_mem: String,
+    },
+    ArithmeticImmediateToAccumulator {
+        op: ArithmeticOp,
+        width: OpWidth,
+        data: i16,
+    },
 }
 
 impl OpCode {
     fn encode(&self) -> String {
         match *self {
-            OpCode::Mov {
+            OpCode::MovToFromRegMem {
                 dir,
                 reg,
                 ref reg_or_mem,
@@ -139,17 +170,11 @@ impl OpCode {
                 Direction::ToRegister => format!("mov {reg}, {reg_or_mem}"),
             },
             OpCode::ImmediateMovRegMem {
-                size,
+                width,
                 ref reg_or_mem,
                 data,
             } => {
-                format!(
-                    "mov {reg_or_mem}, {} {data}",
-                    match size {
-                        OpSize::Byte => "byte",
-                        OpSize::Word => "word",
-                    }
-                )
+                format!("mov {reg_or_mem}, {width} {data}")
             }
             OpCode::ImmediateMovReg { reg, data } => {
                 format!("mov {reg}, {data}")
@@ -158,6 +183,36 @@ impl OpCode {
                 Direction::FromRegister => format!("mov [{addr}], ax"),
                 Direction::ToRegister => format!("mov ax, [{addr}]"),
             },
+            OpCode::ArithmeticFromToRegMem {
+                op,
+                dir,
+                reg,
+                ref reg_or_mem,
+            } => match dir {
+                Direction::FromRegister => format!("{op} {reg_or_mem}, {reg}"),
+                Direction::ToRegister => format!("{op} {reg}, {reg_or_mem}"),
+            },
+            OpCode::ArithmeticImmediateToRegMem {
+                op,
+                width,
+                data,
+                ref reg_or_mem,
+            } => {
+                format!("{op} {reg_or_mem}, {width} {data}")
+            }
+            OpCode::ArithmeticImmediateToAccumulator {
+                op,
+                width,
+                data,
+            } => {
+                format!(
+                    "{op} {}, {data}",
+                    match width {
+                        OpWidth::Byte => "al",
+                        OpWidth::Word => "ax",
+                    }
+                )
+            }
         }
     }
 }
@@ -171,7 +226,7 @@ struct MovDecoder {}
 
 impl MovDecoder {
     const DIR_MASK: u8 = 0b0000_0010;
-    const SIZE_MASK: u8 = 0b0000_0001;
+    const WIDTH_MASK: u8 = 0b0000_0001;
 }
 
 impl OpCodeDecoder for MovDecoder {
@@ -181,10 +236,10 @@ impl OpCodeDecoder for MovDecoder {
         } else {
             Direction::FromRegister
         };
-        let size = if code & MovDecoder::SIZE_MASK != 0 {
-            OpSize::Word
+        let width = if code & MovDecoder::WIDTH_MASK != 0 {
+            OpWidth::Word
         } else {
-            OpSize::Byte
+            OpWidth::Byte
         };
 
         let next = bytes.next().unwrap();
@@ -197,16 +252,13 @@ impl OpCodeDecoder for MovDecoder {
             _ => panic!("impossible, we masked out exactly 2 bits"),
         };
 
-        let reg = decode_reg((*next >> 3) & 0b0000_0111, size);
+        let reg = decode_reg((*next >> 3) & 0b0000_0111, width);
         let reg_or_mem = next & 0b0000_0111;
 
         let reg_or_mem = match mode {
-            Mode::Register => decode_reg(reg_or_mem, size).to_owned(),
+            Mode::Register => decode_reg(reg_or_mem, width).to_owned(),
             Mode::MemoryNoDisplacement if reg_or_mem == 6 => {
-                let direct = match size {
-                    OpSize::Byte => decode_i8(bytes.next().unwrap()),
-                    OpSize::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
-                };
+                let direct = decode_immediate(bytes, width);
                 format!("[{}]", direct)
             }
             Mode::MemoryNoDisplacement => format!("[{}]", effective_address_base(reg_or_mem)),
@@ -228,7 +280,7 @@ impl OpCodeDecoder for MovDecoder {
             }
         };
 
-        OpCode::Mov {
+        OpCode::MovToFromRegMem {
             dir,
             reg,
             reg_or_mem,
@@ -252,15 +304,15 @@ fn format_displacement(displacement: i16) -> String {
 struct ImmediateMovToRegMemDecoder {}
 
 impl ImmediateMovToRegMemDecoder {
-    const SIZE_MASK: u8 = 0b0000_0001;
+    const WIDTH_MASK: u8 = 0b0000_0001;
 }
 
 impl OpCodeDecoder for ImmediateMovToRegMemDecoder {
     fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
-        let size = if code & Self::SIZE_MASK != 0 {
-            OpSize::Word
+        let width = if code & Self::WIDTH_MASK != 0 {
+            OpWidth::Word
         } else {
-            OpSize::Byte
+            OpWidth::Byte
         };
 
         let next = bytes.next().unwrap();
@@ -276,11 +328,11 @@ impl OpCodeDecoder for ImmediateMovToRegMemDecoder {
         let reg_or_mem = next & 0b0000_0111;
 
         let reg_or_mem = match mode {
-            Mode::Register => decode_reg(reg_or_mem, size).to_owned(),
+            Mode::Register => decode_reg(reg_or_mem, width).to_owned(),
             Mode::MemoryNoDisplacement if reg_or_mem == 6 => {
-                let direct = match size {
-                    OpSize::Byte => decode_i8(bytes.next().unwrap()),
-                    OpSize::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
+                let direct = match width {
+                    OpWidth::Byte => decode_i8(bytes.next().unwrap()),
+                    OpWidth::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
                 };
                 format!("[{}]", direct)
             }
@@ -312,13 +364,13 @@ impl OpCodeDecoder for ImmediateMovToRegMemDecoder {
             }
         };
 
-        let data: i16 = match size {
-            OpSize::Byte => decode_i8(bytes.next().unwrap()),
-            OpSize::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
+        let data: i16 = match width {
+            OpWidth::Byte => decode_i8(bytes.next().unwrap()),
+            OpWidth::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
         };
 
         OpCode::ImmediateMovRegMem {
-            size,
+            width,
             reg_or_mem,
             data,
         }
@@ -329,23 +381,23 @@ impl OpCodeDecoder for ImmediateMovToRegMemDecoder {
 struct ImmediateMovToRegDecoder {}
 
 impl ImmediateMovToRegDecoder {
-    const SIZE_MASK: u8 = 0b0000_1000;
+    const WIDTH_MASK: u8 = 0b0000_1000;
 }
 
 impl OpCodeDecoder for ImmediateMovToRegDecoder {
     fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
-        let size = if code & Self::SIZE_MASK != 0 {
-            OpSize::Word
+        let width = if code & Self::WIDTH_MASK != 0 {
+            OpWidth::Word
         } else {
-            OpSize::Byte
+            OpWidth::Byte
         };
 
         let reg = code & 0b0000_0111;
-        let reg = decode_reg(reg, size);
+        let reg = decode_reg(reg, width);
 
-        let data: i16 = match size {
-            OpSize::Byte => decode_i8(bytes.next().unwrap()),
-            OpSize::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
+        let data: i16 = match width {
+            OpWidth::Byte => decode_i8(bytes.next().unwrap()),
+            OpWidth::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
         };
 
         OpCode::ImmediateMovReg { reg, data }
@@ -356,28 +408,122 @@ impl OpCodeDecoder for ImmediateMovToRegDecoder {
 struct MovAccumulatorDecoder {}
 
 impl MovAccumulatorDecoder {
-    const SIZE_MASK: u8 = 0b0000_0001;
+    const WIDTH_MASK: u8 = 0b0000_0001;
     const DIR_MASK: u8 = 0b0000_0010;
 }
+
 impl OpCodeDecoder for MovAccumulatorDecoder {
     fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
-        let size = if code & Self::SIZE_MASK != 0 {
-            OpSize::Word
-        } else {
-            OpSize::Byte
-        };
-        let dir = if code & Self::DIR_MASK != 0 {
-            Direction::FromRegister
-        } else {
-            Direction::ToRegister
-        };
-
-        let address: i16 = match size {
-            OpSize::Byte => decode_i8(bytes.next().unwrap()),
-            OpSize::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
-        };
-
+        let width = decode_width(code, Self::WIDTH_MASK);
+        let dir = decode_dir(code, Self::DIR_MASK);
+        let address = decode_address(bytes, width);
         OpCode::AccumulatorMove { dir, addr: address }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ArithmeticOp {
+    Add,
+    Sub,
+    Cmp,
+}
+
+impl Display for ArithmeticOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            ArithmeticOp::Add => f.write_str("add"),
+            ArithmeticOp::Sub => f.write_str("sub"),
+            ArithmeticOp::Cmp => f.write_str("cmp"),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct ArithmeticFromToRegMemDecoder {}
+
+impl ArithmeticFromToRegMemDecoder {
+    const OP_MASK: u8 = 0b0011_1000;
+    const DIR_MASK: u8 = 0b0000_0010;
+    const WIDTH_MASK: u8 = 0b0000_0001;
+}
+
+impl OpCodeDecoder for ArithmeticFromToRegMemDecoder {
+    fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
+        let dir = decode_dir(code, Self::DIR_MASK);
+        let width = decode_width(code, Self::WIDTH_MASK);
+
+        let op = decode_arithmetic_op((code >> 3) & 0b0000_0111);
+
+        let next = bytes.next().unwrap();
+        let mode = decode_mode((*next >> 6) & 0b0000_0011);
+        let reg = decode_reg((*next >> 3) & 0b0000_0111, width);
+        let reg_or_mem = decode_reg_or_mem(next & 0b0000_0111, mode, width, bytes);
+
+        OpCode::ArithmeticFromToRegMem {
+            op,
+            dir,
+            reg,
+            reg_or_mem,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct ArithmeticImmediateToRegMemDecoder {}
+
+impl ArithmeticImmediateToRegMemDecoder {
+    const SIGN_EXTEND_MASK: u8 = 0b0000_0010;
+    const WIDTH_MASK: u8 = 0b0000_0001;
+}
+
+impl OpCodeDecoder for ArithmeticImmediateToRegMemDecoder {
+    fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
+        let next = bytes.next().unwrap();
+
+        let sign_extend = code & Self::SIGN_EXTEND_MASK != 0;
+        let width = decode_width(code, Self::WIDTH_MASK);
+
+        let mode = decode_mode(*next >> 6 & 0b0000_0011);
+        let op = decode_arithmetic_op((*next >> 3) & 0b0000_0111);
+        let reg_or_mem = decode_reg_or_mem(*next & 0b0000_0111, mode, width, bytes);
+        let data = if !sign_extend {
+            decode_immediate(bytes, width)
+        } else {
+            decode_immediate(bytes, OpWidth::Byte)
+        };
+
+        OpCode::ArithmeticImmediateToRegMem {
+            op,
+            width,
+            data,
+            reg_or_mem,
+        }
+    }
+}
+
+fn decode_arithmetic_op(byte: u8) -> ArithmeticOp {
+    match byte {
+        0 => ArithmeticOp::Add,
+        5 => ArithmeticOp::Sub,
+        7 => ArithmeticOp::Cmp,
+        _ => todo!("not implemented yet"),
+    }
+}
+
+#[derive(Clone)]
+struct ArithmeticImmediateToAccumulatorDecoder {}
+
+impl ArithmeticImmediateToAccumulatorDecoder {
+    const WIDTH_MASK: u8 = 0b0000_0001;
+}
+
+impl OpCodeDecoder for ArithmeticImmediateToAccumulatorDecoder {
+    fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
+        let op = decode_arithmetic_op((code >> 3) & 0b0000_0111);
+        let width = decode_width(code, Self::WIDTH_MASK);
+        let data = decode_immediate(bytes, width);
+
+        OpCode::ArithmeticImmediateToAccumulator { op, width, data }
     }
 }
 
@@ -403,9 +549,84 @@ fn decode_i16(lo: &u8, hi: &u8) -> i16 {
     i16::from_le_bytes([*lo, *hi])
 }
 
-fn decode_reg(reg: u8, size: OpSize) -> &'static str {
-    match size {
-        OpSize::Byte => match reg {
+fn decode_immediate(bytes: &mut dyn Iterator<Item = &u8>, width: OpWidth) -> i16 {
+    match width {
+        OpWidth::Byte => decode_i8(bytes.next().unwrap()),
+        OpWidth::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
+    }
+}
+
+fn decode_dir(code: u8, dir_mask: u8) -> Direction {
+    if code & dir_mask != 0 {
+        Direction::ToRegister
+    } else {
+        Direction::FromRegister
+    }
+}
+
+fn decode_width(code: u8, width_mask: u8) -> OpWidth {
+    if code & width_mask != 0 {
+        OpWidth::Word
+    } else {
+        OpWidth::Byte
+    }
+}
+
+fn decode_mode(mode: u8) -> Mode {
+    match mode {
+        0 => Mode::MemoryNoDisplacement,
+        1 => Mode::MemoryEightBitDisplacement,
+        2 => Mode::MemorySixteenBitDisplacement,
+        3 => Mode::Register,
+        _ => panic!("impossible, we masked out exactly 2 bits"),
+    }
+}
+
+fn decode_address(bytes: &mut dyn Iterator<Item = &u8>, width: OpWidth) -> i16 {
+    match width {
+        OpWidth::Byte => decode_i8(bytes.next().unwrap()),
+        OpWidth::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
+    }
+}
+
+fn decode_reg_or_mem(
+    reg_or_mem: u8,
+    mode: Mode,
+    width: OpWidth,
+    bytes: &mut dyn Iterator<Item = &u8>,
+) -> String {
+    match mode {
+        Mode::Register => decode_reg(reg_or_mem, width).to_owned(),
+        Mode::MemoryNoDisplacement if reg_or_mem == 6 => {
+            let direct = match width {
+                OpWidth::Byte => decode_i8(bytes.next().unwrap()),
+                OpWidth::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
+            };
+            format!("[{}]", direct)
+        }
+        Mode::MemoryNoDisplacement => format!("[{}]", effective_address_base(reg_or_mem)),
+        Mode::MemoryEightBitDisplacement => {
+            let displacement = decode_i8(bytes.next().unwrap());
+            format!(
+                "[{}{}]",
+                effective_address_base(reg_or_mem),
+                format_displacement(displacement)
+            )
+        }
+        Mode::MemorySixteenBitDisplacement => {
+            let displacement = decode_i16(bytes.next().unwrap(), bytes.next().unwrap());
+            format!(
+                "[{}{}]",
+                effective_address_base(reg_or_mem),
+                format_displacement(displacement)
+            )
+        }
+    }
+}
+
+fn decode_reg(reg: u8, width: OpWidth) -> &'static str {
+    match width {
+        OpWidth::Byte => match reg {
             0 => "al",
             1 => "cl",
             2 => "dl",
@@ -416,7 +637,7 @@ fn decode_reg(reg: u8, size: OpSize) -> &'static str {
             7 => "bh",
             _ => panic!("impossible, we're only selecting 3 bits"),
         },
-        OpSize::Word => match reg {
+        OpWidth::Word => match reg {
             0 => "ax",
             1 => "cx",
             2 => "dx",
