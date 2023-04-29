@@ -91,7 +91,7 @@ impl MovAccumulatorDecoder {
 impl OpCodeDecoder for MovAccumulatorDecoder {
     fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
         let width = decode_width(code, Self::WIDTH_MASK);
-        let dir = decode_dir(code, Self::DIR_MASK);
+        let dir = decode_dir(!code, Self::DIR_MASK);
         let address = decode_address(bytes, width);
         OpCode::AccumulatorMove { dir, addr: address }
     }
@@ -204,16 +204,16 @@ fn decode_arithmetic_op(byte: u8) -> ArithmeticOp {
     }
 }
 
-fn effective_address_base(mem: u8) -> &'static str {
+fn effective_address_base2(mem: u8) -> EffectiveAddressBase {
     match mem {
-        0 => "bx + si",
-        1 => "bx + di",
-        2 => "bp + si",
-        3 => "bp + di",
-        4 => "si",
-        5 => "di",
-        6 => "bp",
-        7 => "bx",
+        0 => EffectiveAddressBase::BxPlusSi,
+        1 => EffectiveAddressBase::BxPlusDi,
+        2 => EffectiveAddressBase::BpPlusSi,
+        3 => EffectiveAddressBase::BpPlusDi,
+        4 => EffectiveAddressBase::Si,
+        5 => EffectiveAddressBase::Di,
+        6 => EffectiveAddressBase::Bp,
+        7 => EffectiveAddressBase::Bx,
         _ => panic!("impossible"),
     }
 }
@@ -271,71 +271,127 @@ fn decode_reg_or_mem(
     mode: Mode,
     width: OpWidth,
     bytes: &mut dyn Iterator<Item = &u8>,
-) -> String {
+) -> RegOrMem {
     match mode {
-        Mode::Register => decode_reg(reg_or_mem, width).to_owned(),
+        Mode::Register => RegOrMem::Reg(decode_reg(reg_or_mem, width)),
         Mode::MemoryNoDisplacement if reg_or_mem == 6 => {
             let direct = match width {
                 OpWidth::Byte => decode_i8(bytes.next().unwrap()),
                 OpWidth::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
             };
-            format!("[{}]", direct)
+            RegOrMem::Mem(EffectiveAddress {
+                base: EffectiveAddressBase::Direct,
+                displacement: direct,
+            })
         }
-        Mode::MemoryNoDisplacement => format!("[{}]", effective_address_base(reg_or_mem)),
+        Mode::MemoryNoDisplacement => RegOrMem::Mem(EffectiveAddress {
+            base: effective_address_base2(reg_or_mem),
+            displacement: 0,
+        }),
         Mode::MemoryEightBitDisplacement => {
             let displacement = decode_i8(bytes.next().unwrap());
-            format!(
-                "[{}{}]",
-                effective_address_base(reg_or_mem),
-                format_displacement(displacement)
-            )
+            RegOrMem::Mem(EffectiveAddress {
+                base: effective_address_base2(reg_or_mem),
+                displacement,
+            })
         }
         Mode::MemorySixteenBitDisplacement => {
             let displacement = decode_i16(bytes.next().unwrap(), bytes.next().unwrap());
-            format!(
-                "[{}{}]",
-                effective_address_base(reg_or_mem),
-                format_displacement(displacement)
-            )
+            RegOrMem::Mem(EffectiveAddress {
+                base: effective_address_base2(reg_or_mem),
+                displacement,
+            })
         }
     }
 }
 
-fn decode_reg(reg: u8, width: OpWidth) -> &'static str {
+fn decode_reg(reg: u8, width: OpWidth) -> RegisterAccess {
     match width {
         OpWidth::Byte => match reg {
-            0 => "al",
-            1 => "cl",
-            2 => "dl",
-            3 => "bl",
-            4 => "ah",
-            5 => "ch",
-            6 => "dh",
-            7 => "bh",
+            0 => RegisterAccess {
+                reg: Register::A,
+                width,
+                offset: 0,
+            }, //"al",
+            1 => RegisterAccess {
+                reg: Register::C,
+                width,
+                offset: 0,
+            }, //"cl",
+            2 => RegisterAccess {
+                reg: Register::D,
+                width,
+                offset: 0,
+            }, //"dl",
+            3 => RegisterAccess {
+                reg: Register::B,
+                width,
+                offset: 0,
+            }, //"bl",
+            4 => RegisterAccess {
+                reg: Register::A,
+                width,
+                offset: 1,
+            }, //"ah",
+            5 => RegisterAccess {
+                reg: Register::C,
+                width,
+                offset: 1,
+            }, //"ch",
+            6 => RegisterAccess {
+                reg: Register::D,
+                width,
+                offset: 1,
+            }, //"dh",
+            7 => RegisterAccess {
+                reg: Register::B,
+                width,
+                offset: 1,
+            }, //"bh",
             _ => panic!("impossible, we're only selecting 3 bits"),
         },
         OpWidth::Word => match reg {
-            0 => "ax",
-            1 => "cx",
-            2 => "dx",
-            3 => "bx",
-            4 => "sp",
-            5 => "bp",
-            6 => "si",
-            7 => "di",
+            0 => RegisterAccess {
+                reg: Register::A,
+                width,
+                offset: 0,
+            }, //"ax",
+            1 => RegisterAccess {
+                reg: Register::C,
+                width,
+                offset: 0,
+            }, //"cx",
+            2 => RegisterAccess {
+                reg: Register::D,
+                width,
+                offset: 0,
+            }, //"dx",
+            3 => RegisterAccess {
+                reg: Register::B,
+                width,
+                offset: 0,
+            }, //"bx",
+            4 => RegisterAccess {
+                reg: Register::Sp,
+                width,
+                offset: 0,
+            }, //"sp",
+            5 => RegisterAccess {
+                reg: Register::Bp,
+                width,
+                offset: 0,
+            }, //"bp",
+            6 => RegisterAccess {
+                reg: Register::Si,
+                width,
+                offset: 0,
+            }, //"si",
+            7 => RegisterAccess {
+                reg: Register::Di,
+                width,
+                offset: 0,
+            }, //"di",
             _ => panic!("impossible, we're only selecting 3 bits"),
         },
-    }
-}
-
-fn format_displacement(displacement: i16) -> String {
-    if displacement == 0 {
-        "".to_string()
-    } else if displacement > 0 {
-        format!(" + {displacement}")
-    } else if displacement == -256 {
-        " - 256".to_string()
-    } else {
-        format!(" - {}", -displacement)
     }
 }

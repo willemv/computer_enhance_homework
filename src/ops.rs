@@ -1,6 +1,126 @@
 use std::fmt::Display;
 
 #[derive(Debug, Clone, Copy)]
+pub enum Register {
+    A,
+    C,
+    D,
+    B,
+    Sp,
+    Bp,
+    Si,
+    Di,
+}
+
+impl Display for Register {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{self:?}").to_lowercase())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RegisterAccess {
+    pub reg: Register,
+    pub width: OpWidth,
+    pub offset: u8,
+}
+
+impl RegisterAccess {
+    fn encode(&self) -> String {
+        use Register::*;
+
+        match self.reg {
+            A | C | D | B => format!(
+                "{}{}",
+                self.reg,
+                match self.width {
+                    OpWidth::Word => "x",
+                    OpWidth::Byte =>
+                        if self.offset == 0 {
+                            "l"
+                        } else {
+                            "h"
+                        },
+                }
+            ),
+            Sp | Bp | Si | Di => format!("{}", self.reg),
+        }
+    }
+}
+
+impl Display for RegisterAccess {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.encode())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum EffectiveAddressBase {
+    Direct,
+    BxPlusSi,
+    BxPlusDi,
+    BpPlusSi,
+    BpPlusDi,
+    Si,
+    Di,
+    Bp,
+    Bx,
+}
+
+impl Display for EffectiveAddressBase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Direct => panic!(),
+            Self::BxPlusSi => f.write_str("bx + si"),
+            Self::BxPlusDi => f.write_str("bx + di"),
+            Self::BpPlusSi => f.write_str("bp + si"),
+            Self::BpPlusDi => f.write_str("bp + di"),
+            Self::Si => f.write_str("si"),
+            Self::Di => f.write_str("di"),
+            Self::Bp => f.write_str("bp"),
+            Self::Bx => f.write_str("bx"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EffectiveAddress {
+    pub base: EffectiveAddressBase,
+    pub displacement: i16,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RegOrMem {
+    Reg(RegisterAccess),
+    Mem(EffectiveAddress),
+}
+
+impl Display for RegOrMem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RegOrMem::Reg(ra) => ra.fmt(f),
+
+            RegOrMem::Mem(EffectiveAddress { base, displacement })
+                if matches!(base, &EffectiveAddressBase::Direct) =>
+            {
+                f.write_fmt(format_args!("[{displacement}]"))
+            }
+            RegOrMem::Mem(EffectiveAddress { base, displacement }) => {
+                if displacement == &0 {
+                    f.write_fmt(format_args!("[{base}]"))
+                } else if displacement > &0 {
+                    f.write_fmt(format_args!("[{base} + {displacement}]"))
+                } else if displacement == &(-256) {
+                    f.write_fmt(format_args!("[{base} - 256]"))
+                } else {
+                    f.write_fmt(format_args!("[{base} - {}]", -(*displacement)))
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum Direction {
     ToRegister,
     FromRegister,
@@ -41,16 +161,16 @@ impl Display for ArithmeticOp {
 pub enum OpCode {
     MovToFromRegMem {
         dir: Direction,
-        reg: &'static str,
-        reg_or_mem: String,
+        reg: RegisterAccess,
+        reg_or_mem: RegOrMem,
     },
     ImmediateMovRegMem {
         width: OpWidth,
-        reg_or_mem: String,
+        reg_or_mem: RegOrMem,
         data: i16,
     },
     ImmediateMovReg {
-        reg: &'static str,
+        reg: RegisterAccess,
         data: i16,
     },
     AccumulatorMove {
@@ -60,14 +180,14 @@ pub enum OpCode {
     ArithmeticFromToRegMem {
         op: ArithmeticOp,
         dir: Direction,
-        reg: &'static str,
-        reg_or_mem: String,
+        reg: RegisterAccess,
+        reg_or_mem: RegOrMem,
     },
     ArithmeticImmediateToRegMem {
         op: ArithmeticOp,
         width: OpWidth,
         data: i16,
-        reg_or_mem: String,
+        reg_or_mem: RegOrMem,
     },
     ArithmeticImmediateToAccumulator {
         op: ArithmeticOp,
