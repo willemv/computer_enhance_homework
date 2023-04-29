@@ -69,6 +69,27 @@ fn encode_to_assembler<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     l.insert("0b1000_00sw", ArithmeticImmediateToRegMemDecoder {});
     l.insert("0b00xx_x1dw", ArithmeticImmediateToAccumulatorDecoder {});
 
+    l.insert("0b0111_0100", JumpDecoder::new(OpCode::JumpOnEqual));
+    l.insert("0b0111_1100", JumpDecoder::new(OpCode::JumpOnLess));
+    l.insert("0b0111_1110", JumpDecoder::new(OpCode::JumpOnNotGreater));
+    l.insert("0b0111_0010", JumpDecoder::new(OpCode::JumpOnBelow));
+    l.insert("0b0111_0110", JumpDecoder::new(OpCode::JumpOnNotAbove));
+    l.insert("0b0111_1010", JumpDecoder::new(OpCode::JumpOnParity));
+    l.insert("0b0111_0000", JumpDecoder::new(OpCode::JumpOnOverflow));
+    l.insert("0b0111_1000", JumpDecoder::new(OpCode::JumpOnSign));
+    l.insert("0b0111_0101", JumpDecoder::new(OpCode::JumpOnNotEqual));
+    l.insert("0b0111_1101", JumpDecoder::new(OpCode::JumpOnNotLess));
+    l.insert("0b0111_1111", JumpDecoder::new(OpCode::JumpOnGreater));
+    l.insert("0b0111_0011", JumpDecoder::new(OpCode::JumpOnNotBelow));
+    l.insert("0b0111_0111", JumpDecoder::new(OpCode::JumpOnAbove));
+    l.insert("0b0111_1011", JumpDecoder::new(OpCode::JumpOnNoParity));
+    l.insert("0b0111_0001", JumpDecoder::new(OpCode::JumpOnNoOverflow));
+    l.insert("0b0111_1001", JumpDecoder::new(OpCode::JumpOnNotSign));
+    l.insert("0b1110_0010", JumpDecoder::new(OpCode::Loop));
+    l.insert("0b1110_0001", JumpDecoder::new(OpCode::LoopWhileEqual));
+    l.insert("0b1110_0000", JumpDecoder::new(OpCode::LoopWhileNotEqual));
+    l.insert("0b1110_0011", JumpDecoder::new(OpCode::JumpOnCxZero));
+
     let lookup = l;
 
     let bytes = fs::read(path)?;
@@ -156,6 +177,26 @@ enum OpCode {
         width: OpWidth,
         data: i16,
     },
+    JumpOnEqual(i8),
+    JumpOnLess(i8),
+    JumpOnNotGreater(i8),
+    JumpOnBelow(i8),
+    JumpOnNotAbove(i8),
+    JumpOnParity(i8),
+    JumpOnOverflow(i8),
+    JumpOnSign(i8),
+    JumpOnNotEqual(i8),
+    JumpOnNotLess(i8),
+    JumpOnGreater(i8),
+    JumpOnNotBelow(i8),
+    JumpOnAbove(i8),
+    JumpOnNoParity(i8),
+    JumpOnNoOverflow(i8),
+    JumpOnNotSign(i8),
+    Loop(i8),
+    LoopWhileEqual(i8),
+    LoopWhileNotEqual(i8),
+    JumpOnCxZero(i8),
 }
 
 impl OpCode {
@@ -200,11 +241,7 @@ impl OpCode {
             } => {
                 format!("{op} {reg_or_mem}, {width} {data}")
             }
-            OpCode::ArithmeticImmediateToAccumulator {
-                op,
-                width,
-                data,
-            } => {
+            OpCode::ArithmeticImmediateToAccumulator { op, width, data } => {
                 format!(
                     "{op} {}, {data}",
                     match width {
@@ -213,6 +250,26 @@ impl OpCode {
                     }
                 )
             }
+            OpCode::JumpOnEqual(disp) => format!("je {disp}"),
+            OpCode::JumpOnLess(disp) => format!("jl {disp}"),
+            OpCode::JumpOnNotGreater(disp) => format!("jle {disp}"),
+            OpCode::JumpOnBelow(disp) => format!("jb {disp}"),
+            OpCode::JumpOnNotAbove(disp) => format!("jbe {disp}"),
+            OpCode::JumpOnParity(disp) => format!("jp {disp}"),
+            OpCode::JumpOnOverflow(disp) => format!("jo {disp}"),
+            OpCode::JumpOnSign(disp) => format!("js {disp}"),
+            OpCode::JumpOnNotEqual(disp) => format!("jne {disp}"),
+            OpCode::JumpOnNotLess(disp) => format!("jnl {disp}"),
+            OpCode::JumpOnGreater(disp) => format!("jg {disp}"),
+            OpCode::JumpOnNotBelow(disp) => format!("jnb {disp}"),
+            OpCode::JumpOnAbove(disp) => format!("jnbe {disp}"),
+            OpCode::JumpOnNoParity(disp) => format!("jnp {disp}"),
+            OpCode::JumpOnNoOverflow(disp) => format!("jno {disp}"),
+            OpCode::JumpOnNotSign(disp) => format!("jns {disp}"),
+            OpCode::Loop(disp) => format!("loop {disp}"),
+            OpCode::LoopWhileEqual(disp) => format!("loope {disp}"),
+            OpCode::LoopWhileNotEqual(disp) => format!("loopne {disp}"),
+            OpCode::JumpOnCxZero(disp) => format!("jcxz {disp}"),
         }
     }
 }
@@ -442,7 +499,6 @@ impl Display for ArithmeticOp {
 struct ArithmeticFromToRegMemDecoder {}
 
 impl ArithmeticFromToRegMemDecoder {
-    const OP_MASK: u8 = 0b0011_1000;
     const DIR_MASK: u8 = 0b0000_0010;
     const WIDTH_MASK: u8 = 0b0000_0001;
 }
@@ -648,5 +704,23 @@ fn decode_reg(reg: u8, width: OpWidth) -> &'static str {
             7 => "di",
             _ => panic!("impossible, we're only selecting 3 bits"),
         },
+    }
+}
+
+#[derive(Clone)]
+struct JumpDecoder {
+    jump_op: fn(i8) -> OpCode,
+}
+
+impl JumpDecoder {
+    fn new(op: fn(i8) -> OpCode) -> JumpDecoder {
+        JumpDecoder { jump_op: op }
+    }
+}
+
+impl OpCodeDecoder for JumpDecoder {
+    fn decode(&self, _code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
+        let disp = i8::from_le_bytes([*bytes.next().unwrap()]);
+        (self.jump_op)(disp)
     }
 }
