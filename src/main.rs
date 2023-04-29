@@ -93,20 +93,27 @@ fn encode_to_assembler<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     let lookup = l;
 
     let bytes = fs::read(path)?;
-    let mut iter = bytes.iter();
+    let mut iter = bytes.iter().enumerate().peekable();
     println!("bits 16");
     loop {
         let byte = iter.next();
         if byte.is_none() {
             break;
         }
-        let byte = byte.unwrap();
+        let (i, byte) = byte.unwrap();
 
         let decoder = lookup
             .get(byte)
             .expect(&format!("no decoder found for {byte:#b}"));
-        let code = decoder.decode(*byte, &mut iter);
-        println!("{}", code.encode());
+
+        let code = decoder.decode(*byte, &mut iter.by_ref().map(|(_i, byte)| byte));
+        let next_i = match iter.peek() {
+            Some((i, _byte)) => *i,
+            None => bytes.len(),
+        };
+
+        println!("label_{i}:");
+        println!("{}", code.encode(next_i));
     }
     Ok(())
 }
@@ -200,7 +207,7 @@ enum OpCode {
 }
 
 impl OpCode {
-    fn encode(&self) -> String {
+    fn encode(&self, current_i: usize) -> String {
         match *self {
             OpCode::MovToFromRegMem {
                 dir,
@@ -250,28 +257,39 @@ impl OpCode {
                     }
                 )
             }
-            OpCode::JumpOnEqual(disp) => format!("je {disp}"),
-            OpCode::JumpOnLess(disp) => format!("jl {disp}"),
-            OpCode::JumpOnNotGreater(disp) => format!("jle {disp}"),
-            OpCode::JumpOnBelow(disp) => format!("jb {disp}"),
-            OpCode::JumpOnNotAbove(disp) => format!("jbe {disp}"),
-            OpCode::JumpOnParity(disp) => format!("jp {disp}"),
-            OpCode::JumpOnOverflow(disp) => format!("jo {disp}"),
-            OpCode::JumpOnSign(disp) => format!("js {disp}"),
-            OpCode::JumpOnNotEqual(disp) => format!("jne {disp}"),
-            OpCode::JumpOnNotLess(disp) => format!("jnl {disp}"),
-            OpCode::JumpOnGreater(disp) => format!("jg {disp}"),
-            OpCode::JumpOnNotBelow(disp) => format!("jnb {disp}"),
-            OpCode::JumpOnAbove(disp) => format!("jnbe {disp}"),
-            OpCode::JumpOnNoParity(disp) => format!("jnp {disp}"),
-            OpCode::JumpOnNoOverflow(disp) => format!("jno {disp}"),
-            OpCode::JumpOnNotSign(disp) => format!("jns {disp}"),
-            OpCode::Loop(disp) => format!("loop {disp}"),
-            OpCode::LoopWhileEqual(disp) => format!("loope {disp}"),
-            OpCode::LoopWhileNotEqual(disp) => format!("loopne {disp}"),
-            OpCode::JumpOnCxZero(disp) => format!("jcxz {disp}"),
+            OpCode::JumpOnEqual(disp) => format!("je {}", to_label(disp, current_i)),
+            OpCode::JumpOnLess(disp) => format!("jl {}", to_label(disp, current_i)),
+            OpCode::JumpOnNotGreater(disp) => format!("jle {}", to_label(disp, current_i)),
+            OpCode::JumpOnBelow(disp) => format!("jb {}", to_label(disp, current_i)),
+            OpCode::JumpOnNotAbove(disp) => format!("jbe {}", to_label(disp, current_i)),
+            OpCode::JumpOnParity(disp) => format!("jp {}", to_label(disp, current_i)),
+            OpCode::JumpOnOverflow(disp) => format!("jo {}", to_label(disp, current_i)),
+            OpCode::JumpOnSign(disp) => format!("js {}", to_label(disp, current_i)),
+            OpCode::JumpOnNotEqual(disp) => format!("jne {}", to_label(disp, current_i)),
+            OpCode::JumpOnNotLess(disp) => format!("jnl {}", to_label(disp, current_i)),
+            OpCode::JumpOnGreater(disp) => format!("jg {}", to_label(disp, current_i)),
+            OpCode::JumpOnNotBelow(disp) => format!("jnb {}", to_label(disp, current_i)),
+            OpCode::JumpOnAbove(disp) => format!("jnbe {}", to_label(disp, current_i)),
+            OpCode::JumpOnNoParity(disp) => format!("jnp {}", to_label(disp, current_i)),
+            OpCode::JumpOnNoOverflow(disp) => format!("jno {}", to_label(disp, current_i)),
+            OpCode::JumpOnNotSign(disp) => format!("jns {}", to_label(disp, current_i)),
+            OpCode::Loop(disp) => format!("loop {}", to_label(disp, current_i)),
+            OpCode::LoopWhileEqual(disp) => format!("loope {}", to_label(disp, current_i)),
+            OpCode::LoopWhileNotEqual(disp) => format!("loopne {}", to_label(disp, current_i)),
+            OpCode::JumpOnCxZero(disp) => format!("jcxz {}", to_label(disp, current_i)),
         }
     }
+}
+
+fn to_label(disp: i8, current_i: usize) -> String {
+    let target = if disp < 0 {
+        let disp = -disp as usize;
+        current_i.checked_sub(disp).unwrap()
+    } else {
+        let disp = disp as usize;
+        current_i + disp
+    };
+    format!("label_{target}")
 }
 
 trait OpCodeDecoder {
