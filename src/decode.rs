@@ -13,14 +13,14 @@ enum Mode {
 }
 
 #[derive(Clone, Copy)]
-pub struct MovDecoder {}
+pub struct MovToFromRegMemDecoder {}
 
-impl MovDecoder {
+impl MovToFromRegMemDecoder {
     const DIR_MASK: u8 = 0b0000_0010;
     const WIDTH_MASK: u8 = 0b0000_0001;
 }
 
-impl OpCodeDecoder for MovDecoder {
+impl OpCodeDecoder for MovToFromRegMemDecoder {
     fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
         let dir = decode_dir(code, Self::DIR_MASK);
         let width = decode_width(code, Self::WIDTH_MASK);

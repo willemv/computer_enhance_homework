@@ -29,7 +29,7 @@ fn main() {
 
 fn encode_to_assembler<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     let mut l = OpDecoderLookup::new();
-    l.insert("0b1000_10dw", MovDecoder {});
+    l.insert("0b1000_10dw", MovToFromRegMemDecoder {});
     l.insert("0b1100_011w", ImmediateMovToRegMemDecoder {});
     l.insert("0b1011_wreg", ImmediateMovToRegDecoder {});
     l.insert("0b1010_00dw", MovAccumulatorDecoder {});
