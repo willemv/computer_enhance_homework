@@ -26,6 +26,10 @@ pub struct RegisterAccess {
 }
 
 impl RegisterAccess {
+    pub fn new(reg: Register, width: OpWidth, offset: u8) -> RegisterAccess {
+        RegisterAccess { reg , width, offset }
+    }
+
     fn encode(&self) -> String {
         use Register::*;
 

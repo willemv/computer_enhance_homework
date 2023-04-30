@@ -308,89 +308,25 @@ fn decode_reg_or_mem(
 fn decode_reg(reg: u8, width: OpWidth) -> RegisterAccess {
     match width {
         OpWidth::Byte => match reg {
-            0 => RegisterAccess {
-                reg: Register::A,
-                width,
-                offset: 0,
-            }, //"al",
-            1 => RegisterAccess {
-                reg: Register::C,
-                width,
-                offset: 0,
-            }, //"cl",
-            2 => RegisterAccess {
-                reg: Register::D,
-                width,
-                offset: 0,
-            }, //"dl",
-            3 => RegisterAccess {
-                reg: Register::B,
-                width,
-                offset: 0,
-            }, //"bl",
-            4 => RegisterAccess {
-                reg: Register::A,
-                width,
-                offset: 1,
-            }, //"ah",
-            5 => RegisterAccess {
-                reg: Register::C,
-                width,
-                offset: 1,
-            }, //"ch",
-            6 => RegisterAccess {
-                reg: Register::D,
-                width,
-                offset: 1,
-            }, //"dh",
-            7 => RegisterAccess {
-                reg: Register::B,
-                width,
-                offset: 1,
-            }, //"bh",
+            0 => RegisterAccess::new(Register::A, width, 0), //"al",
+            1 => RegisterAccess::new(Register::C, width, 0), //"cl",
+            2 => RegisterAccess::new(Register::D, width, 0), //"dl",
+            3 => RegisterAccess::new(Register::B, width, 0), //"bl",
+            4 => RegisterAccess::new(Register::A, width, 1), //"ah",
+            5 => RegisterAccess::new(Register::C, width, 1), //"ch",
+            6 => RegisterAccess::new(Register::D, width, 1), //"dh",
+            7 => RegisterAccess::new(Register::B, width, 1), //"bh",
             _ => panic!("impossible, we're only selecting 3 bits"),
         },
         OpWidth::Word => match reg {
-            0 => RegisterAccess {
-                reg: Register::A,
-                width,
-                offset: 0,
-            }, //"ax",
-            1 => RegisterAccess {
-                reg: Register::C,
-                width,
-                offset: 0,
-            }, //"cx",
-            2 => RegisterAccess {
-                reg: Register::D,
-                width,
-                offset: 0,
-            }, //"dx",
-            3 => RegisterAccess {
-                reg: Register::B,
-                width,
-                offset: 0,
-            }, //"bx",
-            4 => RegisterAccess {
-                reg: Register::Sp,
-                width,
-                offset: 0,
-            }, //"sp",
-            5 => RegisterAccess {
-                reg: Register::Bp,
-                width,
-                offset: 0,
-            }, //"bp",
-            6 => RegisterAccess {
-                reg: Register::Si,
-                width,
-                offset: 0,
-            }, //"si",
-            7 => RegisterAccess {
-                reg: Register::Di,
-                width,
-                offset: 0,
-            }, //"di",
+            0 => RegisterAccess::new(Register::A, width, 0), //"ax",
+            1 => RegisterAccess::new(Register::C, width, 0), //"cx",
+            2 => RegisterAccess::new(Register::D, width, 0), //"dx",
+            3 => RegisterAccess::new(Register::B, width, 0), //"bx",
+            4 => RegisterAccess::new(Register::Sp, width, 0), //"sp",
+            5 => RegisterAccess::new(Register::Bp, width, 0), //"bp",
+            6 => RegisterAccess::new(Register::Si, width, 0), //"si",
+            7 => RegisterAccess::new(Register::Di, width, 0), //"di",
             _ => panic!("impossible, we're only selecting 3 bits"),
         },
     }
