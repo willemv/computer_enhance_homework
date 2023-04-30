@@ -162,7 +162,7 @@ impl Display for ArithmeticOp {
     }
 }
 #[derive(Debug, Clone)]
-pub enum OpCode {
+pub enum Instruction {
     MovToFromRegMem {
         dir: Direction,
         reg: RegisterAccess,
@@ -220,10 +220,10 @@ pub enum OpCode {
     JumpOnCxZero(i8),
 }
 
-impl OpCode {
+impl Instruction {
     pub fn encode(&self, current_i: usize) -> String {
         match *self {
-            OpCode::MovToFromRegMem {
+            Instruction::MovToFromRegMem {
                 dir,
                 reg,
                 ref reg_or_mem,
@@ -231,21 +231,21 @@ impl OpCode {
                 Direction::FromRegister => format!("mov {reg_or_mem}, {reg}"),
                 Direction::ToRegister => format!("mov {reg}, {reg_or_mem}"),
             },
-            OpCode::ImmediateMovRegMem {
+            Instruction::ImmediateMovRegMem {
                 width,
                 ref reg_or_mem,
                 data,
             } => {
                 format!("mov {reg_or_mem}, {width} {data}")
             }
-            OpCode::ImmediateMovReg { reg, data } => {
+            Instruction::ImmediateMovReg { reg, data } => {
                 format!("mov {reg}, {data}")
             }
-            OpCode::AccumulatorMove { dir, addr } => match dir {
+            Instruction::AccumulatorMove { dir, addr } => match dir {
                 Direction::FromRegister => format!("mov [{addr}], ax"),
                 Direction::ToRegister => format!("mov ax, [{addr}]"),
             },
-            OpCode::ArithmeticFromToRegMem {
+            Instruction::ArithmeticFromToRegMem {
                 op,
                 dir,
                 reg,
@@ -254,7 +254,7 @@ impl OpCode {
                 Direction::FromRegister => format!("{op} {reg_or_mem}, {reg}"),
                 Direction::ToRegister => format!("{op} {reg}, {reg_or_mem}"),
             },
-            OpCode::ArithmeticImmediateToRegMem {
+            Instruction::ArithmeticImmediateToRegMem {
                 op,
                 width,
                 data,
@@ -262,7 +262,7 @@ impl OpCode {
             } => {
                 format!("{op} {reg_or_mem}, {width} {data}")
             }
-            OpCode::ArithmeticImmediateToAccumulator { op, width, data } => {
+            Instruction::ArithmeticImmediateToAccumulator { op, width, data } => {
                 format!(
                     "{op} {}, {data}",
                     match width {
@@ -271,26 +271,26 @@ impl OpCode {
                     }
                 )
             }
-            OpCode::JumpOnEqual(disp) => format!("je {}", to_label(disp, current_i)),
-            OpCode::JumpOnLess(disp) => format!("jl {}", to_label(disp, current_i)),
-            OpCode::JumpOnNotGreater(disp) => format!("jle {}", to_label(disp, current_i)),
-            OpCode::JumpOnBelow(disp) => format!("jb {}", to_label(disp, current_i)),
-            OpCode::JumpOnNotAbove(disp) => format!("jbe {}", to_label(disp, current_i)),
-            OpCode::JumpOnParity(disp) => format!("jp {}", to_label(disp, current_i)),
-            OpCode::JumpOnOverflow(disp) => format!("jo {}", to_label(disp, current_i)),
-            OpCode::JumpOnSign(disp) => format!("js {}", to_label(disp, current_i)),
-            OpCode::JumpOnNotEqual(disp) => format!("jne {}", to_label(disp, current_i)),
-            OpCode::JumpOnNotLess(disp) => format!("jnl {}", to_label(disp, current_i)),
-            OpCode::JumpOnGreater(disp) => format!("jg {}", to_label(disp, current_i)),
-            OpCode::JumpOnNotBelow(disp) => format!("jnb {}", to_label(disp, current_i)),
-            OpCode::JumpOnAbove(disp) => format!("jnbe {}", to_label(disp, current_i)),
-            OpCode::JumpOnNoParity(disp) => format!("jnp {}", to_label(disp, current_i)),
-            OpCode::JumpOnNoOverflow(disp) => format!("jno {}", to_label(disp, current_i)),
-            OpCode::JumpOnNotSign(disp) => format!("jns {}", to_label(disp, current_i)),
-            OpCode::Loop(disp) => format!("loop {}", to_label(disp, current_i)),
-            OpCode::LoopWhileEqual(disp) => format!("loope {}", to_label(disp, current_i)),
-            OpCode::LoopWhileNotEqual(disp) => format!("loopne {}", to_label(disp, current_i)),
-            OpCode::JumpOnCxZero(disp) => format!("jcxz {}", to_label(disp, current_i)),
+            Instruction::JumpOnEqual(disp) => format!("je {}", to_label(disp, current_i)),
+            Instruction::JumpOnLess(disp) => format!("jl {}", to_label(disp, current_i)),
+            Instruction::JumpOnNotGreater(disp) => format!("jle {}", to_label(disp, current_i)),
+            Instruction::JumpOnBelow(disp) => format!("jb {}", to_label(disp, current_i)),
+            Instruction::JumpOnNotAbove(disp) => format!("jbe {}", to_label(disp, current_i)),
+            Instruction::JumpOnParity(disp) => format!("jp {}", to_label(disp, current_i)),
+            Instruction::JumpOnOverflow(disp) => format!("jo {}", to_label(disp, current_i)),
+            Instruction::JumpOnSign(disp) => format!("js {}", to_label(disp, current_i)),
+            Instruction::JumpOnNotEqual(disp) => format!("jne {}", to_label(disp, current_i)),
+            Instruction::JumpOnNotLess(disp) => format!("jnl {}", to_label(disp, current_i)),
+            Instruction::JumpOnGreater(disp) => format!("jg {}", to_label(disp, current_i)),
+            Instruction::JumpOnNotBelow(disp) => format!("jnb {}", to_label(disp, current_i)),
+            Instruction::JumpOnAbove(disp) => format!("jnbe {}", to_label(disp, current_i)),
+            Instruction::JumpOnNoParity(disp) => format!("jnp {}", to_label(disp, current_i)),
+            Instruction::JumpOnNoOverflow(disp) => format!("jno {}", to_label(disp, current_i)),
+            Instruction::JumpOnNotSign(disp) => format!("jns {}", to_label(disp, current_i)),
+            Instruction::Loop(disp) => format!("loop {}", to_label(disp, current_i)),
+            Instruction::LoopWhileEqual(disp) => format!("loope {}", to_label(disp, current_i)),
+            Instruction::LoopWhileNotEqual(disp) => format!("loopne {}", to_label(disp, current_i)),
+            Instruction::JumpOnCxZero(disp) => format!("jcxz {}", to_label(disp, current_i)),
         }
     }
 }

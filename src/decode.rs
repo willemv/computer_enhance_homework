@@ -1,7 +1,7 @@
 use crate::ops::*;
 
 pub trait OpCodeDecoder {
-    fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode;
+    fn decode(&self, op_code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> Instruction;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -21,9 +21,9 @@ impl MovToFromRegMemDecoder {
 }
 
 impl OpCodeDecoder for MovToFromRegMemDecoder {
-    fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
-        let dir = decode_dir(code, Self::DIR_MASK);
-        let width = decode_width(code, Self::WIDTH_MASK);
+    fn decode(&self, op_code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> Instruction {
+        let dir = decode_dir(op_code, Self::DIR_MASK);
+        let width = decode_width(op_code, Self::WIDTH_MASK);
 
         let next = bytes.next().unwrap();
         let mode = decode_mode((*next >> 6) & 0b0000_0011);
@@ -31,7 +31,7 @@ impl OpCodeDecoder for MovToFromRegMemDecoder {
 
         let reg_or_mem = decode_reg_or_mem(next & 0b0000_0111, mode, width, bytes);
 
-        OpCode::MovToFromRegMem {
+        Instruction::MovToFromRegMem {
             dir,
             reg,
             reg_or_mem,
@@ -47,8 +47,8 @@ impl ImmediateMovToRegMemDecoder {
 }
 
 impl OpCodeDecoder for ImmediateMovToRegMemDecoder {
-    fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
-        let width = decode_width(code, Self::WIDTH_MASK);
+    fn decode(&self, op_code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> Instruction {
+        let width = decode_width(op_code, Self::WIDTH_MASK);
 
         let next = bytes.next().unwrap();
 
@@ -56,7 +56,7 @@ impl OpCodeDecoder for ImmediateMovToRegMemDecoder {
         let reg_or_mem = decode_reg_or_mem(next & 0b0000_0111, mode, width, bytes);
         let data = decode_immediate(bytes, width);
 
-        OpCode::ImmediateMovRegMem {
+        Instruction::ImmediateMovRegMem {
             width,
             reg_or_mem,
             data,
@@ -72,11 +72,11 @@ impl ImmediateMovToRegDecoder {
 }
 
 impl OpCodeDecoder for ImmediateMovToRegDecoder {
-    fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
-        let width = decode_width(code, Self::WIDTH_MASK);
-        let reg = decode_reg(code & 0b0000_0111, width);
+    fn decode(&self, op_code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> Instruction {
+        let width = decode_width(op_code, Self::WIDTH_MASK);
+        let reg = decode_reg(op_code & 0b0000_0111, width);
         let data = decode_immediate(bytes, width);
-        OpCode::ImmediateMovReg { reg, data }
+        Instruction::ImmediateMovReg { reg, data }
     }
 }
 
@@ -89,27 +89,27 @@ impl MovAccumulatorDecoder {
 }
 
 impl OpCodeDecoder for MovAccumulatorDecoder {
-    fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
-        let width = decode_width(code, Self::WIDTH_MASK);
-        let dir = decode_dir(!code, Self::DIR_MASK);
+    fn decode(&self, op_code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> Instruction {
+        let width = decode_width(op_code, Self::WIDTH_MASK);
+        let dir = decode_dir(!op_code, Self::DIR_MASK);
         let address = decode_address(bytes, width);
-        OpCode::AccumulatorMove { dir, addr: address }
+        Instruction::AccumulatorMove { dir, addr: address }
     }
 }
 
 #[derive(Clone)]
 pub struct JumpDecoder {
-    jump_op: fn(i8) -> OpCode,
+    jump_op: fn(i8) -> Instruction,
 }
 
 impl JumpDecoder {
-    pub fn new(op: fn(i8) -> OpCode) -> JumpDecoder {
+    pub fn new(op: fn(i8) -> Instruction) -> JumpDecoder {
         JumpDecoder { jump_op: op }
     }
 }
 
 impl OpCodeDecoder for JumpDecoder {
-    fn decode(&self, _code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
+    fn decode(&self, _op_code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> Instruction {
         let disp = i8::from_le_bytes([*bytes.next().unwrap()]);
         (self.jump_op)(disp)
     }
@@ -124,18 +124,18 @@ impl ArithmeticFromToRegMemDecoder {
 }
 
 impl OpCodeDecoder for ArithmeticFromToRegMemDecoder {
-    fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
-        let dir = decode_dir(code, Self::DIR_MASK);
-        let width = decode_width(code, Self::WIDTH_MASK);
+    fn decode(&self, op_code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> Instruction {
+        let dir = decode_dir(op_code, Self::DIR_MASK);
+        let width = decode_width(op_code, Self::WIDTH_MASK);
 
-        let op = decode_arithmetic_op((code >> 3) & 0b0000_0111);
+        let op = decode_arithmetic_op((op_code >> 3) & 0b0000_0111);
 
         let next = bytes.next().unwrap();
         let mode = decode_mode((*next >> 6) & 0b0000_0011);
         let reg = decode_reg((*next >> 3) & 0b0000_0111, width);
         let reg_or_mem = decode_reg_or_mem(next & 0b0000_0111, mode, width, bytes);
 
-        OpCode::ArithmeticFromToRegMem {
+        Instruction::ArithmeticFromToRegMem {
             op,
             dir,
             reg,
@@ -153,9 +153,9 @@ impl ArithmeticImmediateToRegMemDecoder {
 }
 
 impl OpCodeDecoder for ArithmeticImmediateToRegMemDecoder {
-    fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
-        let sign_extend = code & Self::SIGN_EXTEND_MASK != 0;
-        let width = decode_width(code, Self::WIDTH_MASK);
+    fn decode(&self, op_code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> Instruction {
+        let sign_extend = op_code & Self::SIGN_EXTEND_MASK != 0;
+        let width = decode_width(op_code, Self::WIDTH_MASK);
 
         let next = bytes.next().unwrap();
 
@@ -169,7 +169,7 @@ impl OpCodeDecoder for ArithmeticImmediateToRegMemDecoder {
             decode_immediate(bytes, OpWidth::Byte)
         };
 
-        OpCode::ArithmeticImmediateToRegMem {
+        Instruction::ArithmeticImmediateToRegMem {
             op,
             width,
             data,
@@ -186,12 +186,12 @@ impl ArithmeticImmediateToAccumulatorDecoder {
 }
 
 impl OpCodeDecoder for ArithmeticImmediateToAccumulatorDecoder {
-    fn decode(&self, code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> OpCode {
-        let op = decode_arithmetic_op((code >> 3) & 0b0000_0111);
-        let width = decode_width(code, Self::WIDTH_MASK);
+    fn decode(&self, op_code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> Instruction {
+        let op = decode_arithmetic_op((op_code >> 3) & 0b0000_0111);
+        let width = decode_width(op_code, Self::WIDTH_MASK);
         let data = decode_immediate(bytes, width);
 
-        OpCode::ArithmeticImmediateToAccumulator { op, width, data }
+        Instruction::ArithmeticImmediateToAccumulator { op, width, data }
     }
 }
 
