@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-cargo build --release;
+cargo build --release --bin printer;
 
 let r = (
    ls assignments\*.asm | each { |it|
@@ -8,7 +8,7 @@ let r = (
       rm --force scratch\out ;
       let binary = ($it.name | str substring ..-4) ;
       print -n . ;
-      target\release\computer_enhance.exe $binary out> scratch\out.asm err> scratch\err.log;
+      target\release\printer.exe $binary out> scratch\out.asm err> scratch\err.log;
       let decode = $env.LAST_EXIT_CODE;
       ^nasm scratch\out.asm ;
       let nasm = $env.LAST_EXIT_CODE;
