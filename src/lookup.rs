@@ -7,9 +7,7 @@ pub struct OpDecoderLookup {
 
 impl OpDecoderLookup {
     pub fn new() -> OpDecoderLookup {
-        OpDecoderLookup {
-            map: HashMap::new(),
-        }
+        OpDecoderLookup { map: HashMap::new() }
     }
 
     pub fn insert<D: OpCodeDecoder + Clone + 'static>(&mut self, pattern: &str, decoder: D) {

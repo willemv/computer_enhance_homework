@@ -71,9 +71,7 @@ fn encode_to_assembler<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
         }
         let (i, byte) = byte.unwrap();
 
-        let decoder = lookup
-            .get(byte)
-            .expect(&format!("no decoder found for {byte:#b}"));
+        let decoder = lookup.get(byte).expect(&format!("no decoder found for {byte:#b}"));
 
         let code = decoder.decode(*byte, &mut iter.by_ref().map(|(_i, byte)| byte));
         let next_i = match iter.peek() {

@@ -31,11 +31,7 @@ impl OpCodeDecoder for MovToFromRegMemDecoder {
 
         let reg_or_mem = decode_reg_or_mem(next & 0b0000_0111, mode, width, bytes);
 
-        Instruction::MovToFromRegMem {
-            dir,
-            reg,
-            reg_or_mem,
-        }
+        Instruction::MovToFromRegMem { dir, reg, reg_or_mem }
     }
 }
 
@@ -56,11 +52,7 @@ impl OpCodeDecoder for ImmediateMovToRegMemDecoder {
         let reg_or_mem = decode_reg_or_mem(next & 0b0000_0111, mode, width, bytes);
         let data = decode_immediate(bytes, width);
 
-        Instruction::ImmediateMovRegMem {
-            width,
-            reg_or_mem,
-            data,
-        }
+        Instruction::ImmediateMovRegMem { width, reg_or_mem, data }
     }
 }
 
@@ -135,12 +127,7 @@ impl OpCodeDecoder for ArithmeticFromToRegMemDecoder {
         let reg = decode_reg((*next >> 3) & 0b0000_0111, width);
         let reg_or_mem = decode_reg_or_mem(next & 0b0000_0111, mode, width, bytes);
 
-        Instruction::ArithmeticFromToRegMem {
-            op,
-            dir,
-            reg,
-            reg_or_mem,
-        }
+        Instruction::ArithmeticFromToRegMem { op, dir, reg, reg_or_mem }
     }
 }
 
@@ -198,6 +185,8 @@ impl OpCodeDecoder for ArithmeticImmediateToAccumulatorDecoder {
 fn decode_arithmetic_op(byte: u8) -> ArithmeticOp {
     match byte {
         0 => ArithmeticOp::Add,
+        2 => ArithmeticOp::Adc,
+        3 => ArithmeticOp::Sbb,
         5 => ArithmeticOp::Sub,
         7 => ArithmeticOp::Cmp,
         _ => todo!("not implemented yet"),
@@ -266,12 +255,7 @@ fn decode_address(bytes: &mut dyn Iterator<Item = &u8>, width: OpWidth) -> i16 {
     }
 }
 
-fn decode_reg_or_mem(
-    reg_or_mem: u8,
-    mode: Mode,
-    width: OpWidth,
-    bytes: &mut dyn Iterator<Item = &u8>,
-) -> RegOrMem {
+fn decode_reg_or_mem(reg_or_mem: u8, mode: Mode, width: OpWidth, bytes: &mut dyn Iterator<Item = &u8>) -> RegOrMem {
     match mode {
         Mode::Register => RegOrMem::Reg(decode_reg(reg_or_mem, width)),
         Mode::MemoryNoDisplacement if reg_or_mem == 6 => {
@@ -319,10 +303,10 @@ fn decode_reg(reg: u8, width: OpWidth) -> RegisterAccess {
             _ => panic!("impossible, we're only selecting 3 bits"),
         },
         OpWidth::Word => match reg {
-            0 => RegisterAccess::new(Register::A, width, 0), //"ax",
-            1 => RegisterAccess::new(Register::C, width, 0), //"cx",
-            2 => RegisterAccess::new(Register::D, width, 0), //"dx",
-            3 => RegisterAccess::new(Register::B, width, 0), //"bx",
+            0 => RegisterAccess::new(Register::A, width, 0),  //"ax",
+            1 => RegisterAccess::new(Register::C, width, 0),  //"cx",
+            2 => RegisterAccess::new(Register::D, width, 0),  //"dx",
+            3 => RegisterAccess::new(Register::B, width, 0),  //"bx",
             4 => RegisterAccess::new(Register::Sp, width, 0), //"sp",
             5 => RegisterAccess::new(Register::Bp, width, 0), //"bp",
             6 => RegisterAccess::new(Register::Si, width, 0), //"si",

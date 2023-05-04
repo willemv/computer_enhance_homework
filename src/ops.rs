@@ -27,7 +27,7 @@ pub struct RegisterAccess {
 
 impl RegisterAccess {
     pub fn new(reg: Register, width: OpWidth, offset: u8) -> RegisterAccess {
-        RegisterAccess { reg , width, offset }
+        RegisterAccess { reg, width, offset }
     }
 
     fn encode(&self) -> String {
@@ -104,9 +104,7 @@ impl Display for RegOrMem {
         match self {
             RegOrMem::Reg(ra) => ra.fmt(f),
 
-            RegOrMem::Mem(EffectiveAddress { base, displacement })
-                if matches!(base, &EffectiveAddressBase::Direct) =>
-            {
+            RegOrMem::Mem(EffectiveAddress { base, displacement }) if matches!(base, &EffectiveAddressBase::Direct) => {
                 f.write_fmt(format_args!("[{displacement}]"))
             }
             RegOrMem::Mem(EffectiveAddress { base, displacement }) => {
@@ -148,7 +146,9 @@ impl std::fmt::Display for OpWidth {
 #[derive(Debug, Clone, Copy)]
 pub enum ArithmeticOp {
     Add,
+    Adc,
     Sub,
+    Sbb,
     Cmp,
 }
 
@@ -156,11 +156,14 @@ impl Display for ArithmeticOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             ArithmeticOp::Add => f.write_str("add"),
+            ArithmeticOp::Adc => f.write_str("adc"),
             ArithmeticOp::Sub => f.write_str("sub"),
+            ArithmeticOp::Sbb => f.write_str("sbb"),
             ArithmeticOp::Cmp => f.write_str("cmp"),
         }
     }
 }
+
 #[derive(Debug, Clone)]
 pub enum Instruction {
     MovToFromRegMem {
