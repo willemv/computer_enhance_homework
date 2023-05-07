@@ -90,6 +90,25 @@ impl OpCodeDecoder for MovAccumulatorDecoder {
 }
 
 #[derive(Clone)]
+pub struct MovSegmentDecoder {}
+
+impl MovSegmentDecoder {
+    const DIR_MASK: u8 = 0b0000_0010;
+}
+
+impl OpCodeDecoder for MovSegmentDecoder {
+    fn decode(&self, op_code: u8, bytes: &mut dyn Iterator<Item = &u8>) -> Instruction {
+        let next = *bytes.next().unwrap();
+        let mode = decode_mode((next >> 6) & 0b0000_0011);
+        let dir = decode_dir(op_code, Self::DIR_MASK);
+        let seg_reg = decode_seg_reg(next >> 3 & 0b0000_0011);
+        let reg_or_mem = decode_reg_or_mem(next & 0b0000_0111, mode, OpWidth::Word, bytes);
+
+        Instruction::SegmentRegisterMove { dir, seg_reg, reg_or_mem }
+    }
+}
+
+#[derive(Clone)]
 pub struct JumpDecoder {
     jump_op: fn(i8) -> Instruction,
 }
@@ -244,6 +263,16 @@ fn decode_mode(mode: u8) -> Mode {
         1 => Mode::MemoryEightBitDisplacement,
         2 => Mode::MemorySixteenBitDisplacement,
         3 => Mode::Register,
+        _ => panic!("impossible, we masked out exactly 2 bits"),
+    }
+}
+
+fn decode_seg_reg(seg_reg: u8) -> SegmentRegister {
+    match seg_reg {
+        0 => SegmentRegister::Es,
+        1 => SegmentRegister::Cs,
+        2 => SegmentRegister::Ss,
+        3 => SegmentRegister::Ds,
         _ => panic!("impossible, we masked out exactly 2 bits"),
     }
 }

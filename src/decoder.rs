@@ -13,6 +13,7 @@ impl Decoder {
         l.insert("0b1100_011w", ImmediateMovToRegMemDecoder {});
         l.insert("0b1011_wreg", ImmediateMovToRegDecoder {});
         l.insert("0b1010_00dw", MovAccumulatorDecoder {});
+        l.insert("0b1000_11d0", MovSegmentDecoder {});
 
         l.insert("0b00xx_x0dw", ArithmeticFromToRegMemDecoder {});
         l.insert("0b1000_00sw", ArithmeticImmediateToRegMemDecoder {});

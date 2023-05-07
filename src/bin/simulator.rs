@@ -2,7 +2,7 @@ use std::{env, error::Error, fmt::Debug, fs, path::Path};
 
 use sim8086::{
     decoder::Decoder,
-    ops::{Instruction, OpWidth, Register, RegisterAccess},
+    ops::{Instruction, OpWidth, Register, RegisterAccess, SegmentRegister},
 };
 
 fn main() {
@@ -28,7 +28,7 @@ struct CpuState {
 impl CpuState {
     fn new() -> CpuState {
         CpuState {
-            registers: Registers { regs: [0i16; 8] },
+            registers: Registers { regs: [0i16; 8], seg_regs: [0i16; 4] },
         }
     }
 }
@@ -36,10 +36,11 @@ impl CpuState {
 #[derive(Debug)]
 struct Registers {
     regs: [i16; 8], //layout: AX, CX, DX, BX, SP, BP, SI, DI
+    seg_regs: [i16; 4] //layout: ES, CS, SS, DS
 }
 
 impl Registers {
-    fn get(&self, reg: RegisterAccess) -> i16 {
+    fn read_reg(&self, reg: RegisterAccess) -> i16 {
         use Register::*;
         match reg.reg {
             Sp => self.regs[4],
@@ -71,7 +72,8 @@ impl Registers {
             },
         }
     }
-    fn set(&mut self, value: i16, reg: RegisterAccess) {
+
+    fn write_reg(&mut self, value: i16, reg: RegisterAccess) {
         use Register::*;
         match reg.reg {
             Sp => self.regs[4] = value,
@@ -111,6 +113,26 @@ impl Registers {
                     };
                 }
             },
+        }
+    }
+
+    fn read_seg_reg(&self, reg: SegmentRegister) -> i16 {
+        use SegmentRegister::*;
+        match reg {
+            Es => self.seg_regs[0],
+            Cs => self.seg_regs[1],
+            Ss => self.seg_regs[2],
+            Ds => self.seg_regs[3],
+        }
+    }
+
+    fn write_seg_reg(&mut self, reg: SegmentRegister, value: i16) {
+        use SegmentRegister::*;
+        match reg {
+            Es => self.seg_regs[0] = value,
+            Cs => self.seg_regs[1] = value,
+            Ss => self.seg_regs[2] = value,
+            Ds => self.seg_regs[3] = value,
         }
     }
 }
@@ -153,14 +175,14 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
 fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
     match instruction {
         Instruction::ImmediateMovReg { reg, data } => {
-            state.registers.set(data, reg);
+            state.registers.write_reg(data, reg);
         }
         Instruction::ImmediateMovRegMem { width, reg_or_mem, data } => {
             match reg_or_mem {
                 sim8086::ops::RegOrMem::Mem(ref ea) => todo!(),
                 sim8086::ops::RegOrMem::Reg(access) => {
-                    state.registers.set(data, access);
-                }
+                    state.registers.write_reg(data, access);
+                },
             }
             todo!()
         }
@@ -168,15 +190,28 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
             sim8086::ops::RegOrMem::Mem(_) => todo!(),
             sim8086::ops::RegOrMem::Reg(reg_access) => match dir {
                 sim8086::ops::Direction::FromRegister => {
-                    let v = state.registers.get(reg);
-                    state.registers.set(v, reg_access)
+                    let v = state.registers.read_reg(reg);
+                    state.registers.write_reg(v, reg_access)
                 }
                 sim8086::ops::Direction::ToRegister => {
-                    let v = state.registers.get(reg_access);
-                    state.registers.set(v, reg)
+                    let v = state.registers.read_reg(reg_access);
+                    state.registers.write_reg(v, reg)
                 }
             },
         },
+        Instruction::SegmentRegisterMove { dir, seg_reg, reg_or_mem } => match reg_or_mem {
+            sim8086::ops::RegOrMem::Mem(_) => todo!(),
+            sim8086::ops::RegOrMem::Reg(reg_access) => match dir {
+                sim8086::ops::Direction::FromRegister => {
+                    let value = state.registers.read_seg_reg(seg_reg);
+                    state.registers.write_reg(value, reg_access);
+                },
+                sim8086::ops::Direction::ToRegister => {
+                    let value = state.registers.read_reg(reg_access);
+                    state.registers.write_seg_reg(seg_reg, value);
+                }
+            }
+        }
         _ => todo!(),
     }
 }

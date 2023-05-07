@@ -19,6 +19,20 @@ impl Display for Register {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub enum SegmentRegister {
+    Es,
+    Cs,
+    Ss,
+    Ds
+}
+
+impl Display for SegmentRegister {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{self:?}").to_lowercase())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct RegisterAccess {
     pub reg: Register,
     pub width: OpWidth,
@@ -184,6 +198,11 @@ pub enum Instruction {
         dir: Direction,
         addr: i16,
     },
+    SegmentRegisterMove {
+        dir: Direction,
+        seg_reg: SegmentRegister,
+        reg_or_mem: RegOrMem,
+    },
     ArithmeticFromToRegMem {
         op: ArithmeticOp,
         dir: Direction,
@@ -248,6 +267,10 @@ impl Instruction {
                 Direction::FromRegister => format!("mov [{addr}], ax"),
                 Direction::ToRegister => format!("mov ax, [{addr}]"),
             },
+            Instruction::SegmentRegisterMove { dir, seg_reg, reg_or_mem } => match dir {
+                Direction::FromRegister => format!("mov {reg_or_mem}, {seg_reg}"),
+                Direction::ToRegister => format!("mov {seg_reg}, {reg_or_mem}"),
+            }
             Instruction::ArithmeticFromToRegMem {
                 op,
                 dir,
