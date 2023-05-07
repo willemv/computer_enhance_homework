@@ -28,7 +28,7 @@ fn encode_to_assembler<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     println!("bits 16");
 
     loop {
-        let i = match iter.peek() {
+        let position_before = match iter.peek() {
             Some((i, _byte)) => *i,
             None => bytes.len(),
         };
@@ -40,13 +40,13 @@ fn encode_to_assembler<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
 
         let code = code.unwrap();
 
-        let next_i = match iter.peek() {
+        let position_after = match iter.peek() {
             Some((i, _byte)) => *i,
             None => bytes.len(),
         };
 
-        println!("label_{i}:");
-        println!("{}", code.encode(next_i));
+        println!("label_{position_before}:");
+        println!("{}", code.encode(position_after));
     }
     Ok(())
 }

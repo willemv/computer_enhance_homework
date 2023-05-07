@@ -46,12 +46,7 @@ impl Decoder {
     }
 
     pub fn decode_next(&self, iter: &mut dyn Iterator<Item = &u8>) -> Option<Instruction> {
-        let byte = iter.next();
-        if byte.is_none() {
-            return None;
-        }
-
-        let byte = byte.unwrap();
+        let byte = iter.next()?;
 
         let decoder = self.lookup.get(byte).expect(&format!("no decoder found for {byte:#b}"));
 
