@@ -28,15 +28,18 @@ struct CpuState {
 impl CpuState {
     fn new() -> CpuState {
         CpuState {
-            registers: Registers { regs: [0i16; 8], seg_regs: [0i16; 4] },
+            registers: Registers {
+                regs: [0i16; 8],
+                seg_regs: [0i16; 4],
+            },
         }
     }
 }
 
 #[derive(Debug)]
 struct Registers {
-    regs: [i16; 8], //layout: AX, CX, DX, BX, SP, BP, SI, DI
-    seg_regs: [i16; 4] //layout: ES, CS, SS, DS
+    regs: [i16; 8],     //layout: AX, CX, DX, BX, SP, BP, SI, DI
+    seg_regs: [i16; 4], //layout: ES, CS, SS, DS
 }
 
 impl Registers {
@@ -141,32 +144,22 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
     let decoder = Decoder::new();
 
     let bytes = fs::read(path)?;
-    let mut iter = bytes.iter().enumerate().peekable();
+    let mut iter = bytes.iter();
 
     let mut state = CpuState::new();
 
     loop {
-        let i = match iter.peek() {
-            Some((i, _byte)) => *i,
-            None => bytes.len(),
-        };
-
-        let instruction = decoder.decode_next(&mut iter.by_ref().map(|(_i, byte)| byte));
+        let instruction = decoder.decode_next(&mut iter);
         if instruction.is_none() {
             break;
         }
 
         let instruction = instruction.unwrap();
 
-        println!("{}", instruction.encode(0));
+        println!("{}", instruction.encode(|disp| format!("{disp}")));
         simulate_instruction(&mut state, instruction);
 
         println!("state: {state:X?}");
-
-        let next_i = match iter.peek() {
-            Some((i, _byte)) => *i,
-            None => bytes.len(),
-        };
     }
 
     Ok(())
@@ -182,7 +175,7 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
                 sim8086::ops::RegOrMem::Mem(ref ea) => todo!(),
                 sim8086::ops::RegOrMem::Reg(access) => {
                     state.registers.write_reg(data, access);
-                },
+                }
             }
             todo!()
         }
@@ -205,13 +198,13 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
                 sim8086::ops::Direction::FromRegister => {
                     let value = state.registers.read_seg_reg(seg_reg);
                     state.registers.write_reg(value, reg_access);
-                },
+                }
                 sim8086::ops::Direction::ToRegister => {
                     let value = state.registers.read_reg(reg_access);
                     state.registers.write_seg_reg(seg_reg, value);
                 }
-            }
-        }
+            },
+        },
         _ => todo!(),
     }
 }

@@ -23,7 +23,7 @@ pub enum SegmentRegister {
     Es,
     Cs,
     Ss,
-    Ds
+    Ds,
 }
 
 impl Display for SegmentRegister {
@@ -243,13 +243,12 @@ pub enum Instruction {
 }
 
 impl Instruction {
-    pub fn encode(&self, current_i: usize) -> String {
+    pub fn encode<F>(&self, format_jump: F) -> String
+    where
+        F: Fn(i8) -> String,
+    {
         match *self {
-            Instruction::MovToFromRegMem {
-                dir,
-                reg,
-                ref reg_or_mem,
-            } => match dir {
+            Instruction::MovToFromRegMem { dir, reg, ref reg_or_mem } => match dir {
                 Direction::FromRegister => format!("mov {reg_or_mem}, {reg}"),
                 Direction::ToRegister => format!("mov {reg}, {reg_or_mem}"),
             },
@@ -270,7 +269,7 @@ impl Instruction {
             Instruction::SegmentRegisterMove { dir, seg_reg, reg_or_mem } => match dir {
                 Direction::FromRegister => format!("mov {reg_or_mem}, {seg_reg}"),
                 Direction::ToRegister => format!("mov {seg_reg}, {reg_or_mem}"),
-            }
+            },
             Instruction::ArithmeticFromToRegMem {
                 op,
                 dir,
@@ -297,37 +296,26 @@ impl Instruction {
                     }
                 )
             }
-            Instruction::JumpOnEqual(disp) => format!("je {}", to_label(disp, current_i)),
-            Instruction::JumpOnLess(disp) => format!("jl {}", to_label(disp, current_i)),
-            Instruction::JumpOnNotGreater(disp) => format!("jle {}", to_label(disp, current_i)),
-            Instruction::JumpOnBelow(disp) => format!("jb {}", to_label(disp, current_i)),
-            Instruction::JumpOnNotAbove(disp) => format!("jbe {}", to_label(disp, current_i)),
-            Instruction::JumpOnParity(disp) => format!("jp {}", to_label(disp, current_i)),
-            Instruction::JumpOnOverflow(disp) => format!("jo {}", to_label(disp, current_i)),
-            Instruction::JumpOnSign(disp) => format!("js {}", to_label(disp, current_i)),
-            Instruction::JumpOnNotEqual(disp) => format!("jne {}", to_label(disp, current_i)),
-            Instruction::JumpOnNotLess(disp) => format!("jnl {}", to_label(disp, current_i)),
-            Instruction::JumpOnGreater(disp) => format!("jg {}", to_label(disp, current_i)),
-            Instruction::JumpOnNotBelow(disp) => format!("jnb {}", to_label(disp, current_i)),
-            Instruction::JumpOnAbove(disp) => format!("jnbe {}", to_label(disp, current_i)),
-            Instruction::JumpOnNoParity(disp) => format!("jnp {}", to_label(disp, current_i)),
-            Instruction::JumpOnNoOverflow(disp) => format!("jno {}", to_label(disp, current_i)),
-            Instruction::JumpOnNotSign(disp) => format!("jns {}", to_label(disp, current_i)),
-            Instruction::Loop(disp) => format!("loop {}", to_label(disp, current_i)),
-            Instruction::LoopWhileEqual(disp) => format!("loope {}", to_label(disp, current_i)),
-            Instruction::LoopWhileNotEqual(disp) => format!("loopne {}", to_label(disp, current_i)),
-            Instruction::JumpOnCxZero(disp) => format!("jcxz {}", to_label(disp, current_i)),
+            Instruction::JumpOnEqual(disp) => format!("je {}", format_jump(disp)),
+            Instruction::JumpOnLess(disp) => format!("jl {}", format_jump(disp)),
+            Instruction::JumpOnNotGreater(disp) => format!("jle {}", format_jump(disp)),
+            Instruction::JumpOnBelow(disp) => format!("jb {}", format_jump(disp)),
+            Instruction::JumpOnNotAbove(disp) => format!("jbe {}", format_jump(disp)),
+            Instruction::JumpOnParity(disp) => format!("jp {}", format_jump(disp)),
+            Instruction::JumpOnOverflow(disp) => format!("jo {}", format_jump(disp)),
+            Instruction::JumpOnSign(disp) => format!("js {}", format_jump(disp)),
+            Instruction::JumpOnNotEqual(disp) => format!("jne {}", format_jump(disp)),
+            Instruction::JumpOnNotLess(disp) => format!("jnl {}", format_jump(disp)),
+            Instruction::JumpOnGreater(disp) => format!("jg {}", format_jump(disp)),
+            Instruction::JumpOnNotBelow(disp) => format!("jnb {}", format_jump(disp)),
+            Instruction::JumpOnAbove(disp) => format!("jnbe {}", format_jump(disp)),
+            Instruction::JumpOnNoParity(disp) => format!("jnp {}", format_jump(disp)),
+            Instruction::JumpOnNoOverflow(disp) => format!("jno {}", format_jump(disp)),
+            Instruction::JumpOnNotSign(disp) => format!("jns {}", format_jump(disp)),
+            Instruction::Loop(disp) => format!("loop {}", format_jump(disp)),
+            Instruction::LoopWhileEqual(disp) => format!("loope {}", format_jump(disp)),
+            Instruction::LoopWhileNotEqual(disp) => format!("loopne {}", format_jump(disp)),
+            Instruction::JumpOnCxZero(disp) => format!("jcxz {}", format_jump(disp)),
         }
     }
-}
-
-fn to_label(disp: i8, current_i: usize) -> String {
-    let target = if disp < 0 {
-        let disp = -disp as usize;
-        current_i.checked_sub(disp).unwrap()
-    } else {
-        let disp = disp as usize;
-        current_i + disp
-    };
-    format!("label_{target}")
 }

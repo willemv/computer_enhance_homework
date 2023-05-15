@@ -1,4 +1,4 @@
-pub mod decoder;
-pub mod ops;
 mod decode;
+pub mod decoder;
 mod lookup;
+pub mod ops;
