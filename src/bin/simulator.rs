@@ -74,21 +74,21 @@ impl Registers {
                 }
             },
         }
-    }
+    }   
 
     fn write_reg(&mut self, value: i16, reg: RegisterAccess) {
         use Register::*;
         match reg.reg {
-            Sp => self.regs[4] = value,
-            Bp => self.regs[5] = value,
-            Si => self.regs[6] = value,
-            Di => self.regs[7] = value,
+            Sp => { print!("sp:0x{:0<4X}->0x{:0<4X}",self.regs[4], value); self.regs[4] = value},
+            Bp => { print!("bp:0x{:0<4X}->0x{:0<4X}",self.regs[5], value); self.regs[5] = value},
+            Si => { print!("si:0x{:0<4X}->0x{:0<4X}",self.regs[6], value); self.regs[6] = value},
+            Di => { print!("di:0x{:0<4X}->0x{:0<4X}",self.regs[7], value); self.regs[7] = value},
             _ => match reg.width {
                 OpWidth::Word => match reg.reg {
-                    A => self.regs[0] = value,
-                    C => self.regs[1] = value,
-                    D => self.regs[2] = value,
-                    B => self.regs[3] = value,
+                    A => {print!("ax:0x{:0<4X}->0x{:0<4X}", self.regs[0], value) ; self.regs[0] = value},
+                    C => {print!("cx:0x{:0<4X}->0x{:0<4X}", self.regs[1], value) ; self.regs[1] = value},
+                    D => {print!("dx:0x{:0<4X}->0x{:0<4X}", self.regs[2], value) ; self.regs[2] = value},
+                    B => {print!("bx:0x{:0<4X}->0x{:0<4X}", self.regs[3], value) ; self.regs[3] = value},
                     _ => panic!("impossible"),
                 },
                 OpWidth::Byte => {
@@ -108,10 +108,10 @@ impl Registers {
                         (original & -256/* 0xFF00 */) | value
                     };
                     match reg.reg {
-                        A => self.regs[0] = new,
-                        C => self.regs[1] = new,
-                        D => self.regs[2] = new,
-                        B => self.regs[3] = new,
+                        A => {print!("ax:0x{:0<4X}->0x{:0<4X}", self.regs[0], new ); self.regs[0] = new},
+                        C => {print!("cx:0x{:0<4X}->0x{:0<4X}", self.regs[1], new ); self.regs[1] = new},
+                        D => {print!("dx:0x{:0<4X}->0x{:0<4X}", self.regs[2], new ); self.regs[2] = new},
+                        B => {print!("bx:0x{:0<4X}->0x{:0<4X}", self.regs[3], new ); self.regs[3] = new},
                         _ => panic!("impossible"),
                     };
                 }
@@ -132,10 +132,10 @@ impl Registers {
     fn write_seg_reg(&mut self, reg: SegmentRegister, value: i16) {
         use SegmentRegister::*;
         match reg {
-            Es => self.seg_regs[0] = value,
-            Cs => self.seg_regs[1] = value,
-            Ss => self.seg_regs[2] = value,
-            Ds => self.seg_regs[3] = value,
+            Es => {print!("es:0x{:0<4X}->0x{:0<4X}", self.seg_regs[0], value); self.seg_regs[0] = value},
+            Cs => {print!("cs:0x{:0<4X}->0x{:0<4X}", self.seg_regs[1], value); self.seg_regs[1] = value},
+            Ss => {print!("ss:0x{:0<4X}->0x{:0<4X}", self.seg_regs[2], value); self.seg_regs[2] = value},
+            Ds => {print!("ds:0x{:0<4X}->0x{:0<4X}", self.seg_regs[3], value); self.seg_regs[3] = value},
         }
     }
 }
@@ -156,11 +156,25 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
 
         let instruction = instruction.unwrap();
 
-        println!("{}", instruction.encode(|disp| format!("{disp}")));
+        print!("{:<20} ; ", instruction.encode(|disp| format!("{disp}")));
         simulate_instruction(&mut state, instruction);
 
-        println!("state: {state:X?}");
+        println!("");
     }
+    println!();
+    println!("Final registers:");
+    println!("    ax: 0x{:0<4X} ({0})", state.registers.regs[0]);
+    println!("    bx: 0x{:0<4X} ({0})", state.registers.regs[3]);
+    println!("    cx: 0x{:0<4X} ({0})", state.registers.regs[1]);
+    println!("    dx: 0x{:0<4X} ({0})", state.registers.regs[2]);
+    println!("    sp: 0x{:0<4X} ({0})", state.registers.regs[4]);
+    println!("    bp: 0x{:0<4X} ({0})", state.registers.regs[5]);
+    println!("    si: 0x{:0<4X} ({0})", state.registers.regs[6]);
+    println!("    di: 0x{:0<4X} ({0})", state.registers.regs[7]);
+    println!("    es: 0x{:0<4X} ({0})", state.registers.seg_regs[0]);
+    println!("    cs: 0x{:0<4X} ({0})", state.registers.seg_regs[1]);
+    println!("    ss: 0x{:0<4X} ({0})", state.registers.seg_regs[2]);
+    println!("    ds: 0x{:0<4X} ({0})", state.registers.seg_regs[3]);
 
     Ok(())
 }
