@@ -84,10 +84,7 @@ fn to_label(disp: i8, current_i: usize, jump_table: &HashMap<usize, String>) -> 
         let disp = disp as usize;
         current_i + disp
     };
-    match jump_table.get(&target) {
-        Some(label) => label.clone(),
-        None => format!("{disp}"),
-    }
+    jump_table.get(&target).unwrap().clone()
 }
 
 fn to_absolute(disp: i8, current_i: usize) -> usize {
