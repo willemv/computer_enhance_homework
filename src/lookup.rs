@@ -22,13 +22,16 @@ impl OpDecoderLookup {
         }
     }
 
-    pub fn get(&self, opcode: &u8) -> Option<&Box<dyn OpCodeDecoder>> {
-        self.map.get(opcode)
+    pub fn get(&self, opcode: &u8) -> Option<&dyn OpCodeDecoder> {
+        match self.map.get(opcode) {
+            Some(decoder) => Some(decoder.as_ref()),
+            None => None
+        }
     }
 
     fn expand(i: &str, v: &mut Vec<u8>) {
         if i.chars().all(|c| c == '1' || c == '0') {
-            let p = u8::from_str_radix(i, 2).expect(&format!("could not parse {i}"));
+            let p = u8::from_str_radix(i, 2).unwrap_or_else(|_| panic!("could not parse {i}"));
             v.push(p);
         } else {
             Self::expand(&i.replacen(|c| !char::is_numeric(c), "0", 1), v);

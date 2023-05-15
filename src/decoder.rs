@@ -48,10 +48,16 @@ impl Decoder {
     pub fn decode_next(&self, iter: &mut dyn Iterator<Item = &u8>) -> Option<Instruction> {
         let byte = iter.next()?;
 
-        let decoder = self.lookup.get(byte).expect(&format!("no decoder found for {byte:#b}"));
+        let decoder = self.lookup.get(byte).unwrap_or_else(|| panic!("no decoder found for {byte:#b}"));
 
         let code = decoder.decode(*byte, iter);
 
         Some(code)
+    }
+}
+
+impl Default for Decoder {
+    fn default() -> Self {
+        Self::new()
     }
 }

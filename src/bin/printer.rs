@@ -54,7 +54,7 @@ fn encode_to_assembler<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     //collect jump targets
     let mut jump_targets: BTreeSet<usize> = BTreeSet::new();
     for (_position_before, position_after, instruction) in decoded_instructions.iter() {
-        if let Some(jump) = relative_jump(&instruction) {
+        if let Some(jump) = relative_jump(instruction) {
             let target = to_absolute(jump, *position_after);
             jump_targets.insert(target);
         }

@@ -170,9 +170,9 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
         Instruction::ImmediateMovReg { reg, data } => {
             state.registers.write_reg(data, reg);
         }
-        Instruction::ImmediateMovRegMem { width, reg_or_mem, data } => {
+        Instruction::ImmediateMovRegMem { width: _, reg_or_mem, data } => {
             match reg_or_mem {
-                sim8086::ops::RegOrMem::Mem(ref ea) => todo!(),
+                sim8086::ops::RegOrMem::Mem(ref _ea) => todo!(),
                 sim8086::ops::RegOrMem::Reg(access) => {
                     state.registers.write_reg(data, access);
                 }
