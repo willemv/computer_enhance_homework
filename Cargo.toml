@@ -7,3 +7,4 @@ edition = "2021"
 name = "sim8086"
 
 [dependencies]
+bitflags = "2.2.1"

@@ -1,8 +1,9 @@
+use bitflags::bitflags;
 use std::{env, error::Error, fmt::Debug, fs, path::Path};
 
 use sim8086::{
     decoder::Decoder,
-    ops::{Instruction, OpWidth, Register, RegisterAccess, SegmentRegister},
+    ops::{ArithmeticOp, Instruction, OpWidth, Register, RegisterAccess, SegmentRegister, RegOrMem},
 };
 
 fn main() {
@@ -31,15 +32,28 @@ impl CpuState {
             registers: Registers {
                 regs: [0i16; 8],
                 seg_regs: [0i16; 4],
+                flags: Flags::empty(),
             },
         }
     }
 }
 
+bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    struct Flags: u16 {
+        const Sign = 0b1000_0000;
+        const Zero = 0b0100_0000;
+        const AuxiliaryCarry = 0b0001_0000;
+        const Parity = 0b0000_0100;
+        const Carry = 0b0000_0001;
+    }
+}
+
 #[derive(Debug)]
 struct Registers {
-    regs: [i16; 8],     //layout: AX, CX, DX, BX, SP, BP, SI, DI
+    regs: [i16; 8],     //layout: AX, BX, CX, DX, SP, BP, SI, DI
     seg_regs: [i16; 4], //layout: ES, CS, SS, DS
+    flags: Flags,
 }
 
 impl Registers {
@@ -53,17 +67,17 @@ impl Registers {
             _ => match reg.width {
                 OpWidth::Word => match reg.reg {
                     A => self.regs[0],
-                    C => self.regs[1],
-                    D => self.regs[2],
-                    B => self.regs[3],
+                    B => self.regs[1],
+                    C => self.regs[2],
+                    D => self.regs[3],
                     _ => panic!("impossible"),
                 },
                 OpWidth::Byte => {
                     let word = match reg.reg {
                         A => self.regs[0],
-                        C => self.regs[1],
-                        D => self.regs[2],
-                        B => self.regs[3],
+                        B => self.regs[1],
+                        C => self.regs[2],
+                        D => self.regs[3],
                         _ => panic!("impossible"),
                     };
                     if reg.offset != 0 {
@@ -74,21 +88,45 @@ impl Registers {
                 }
             },
         }
-    }   
+    }
 
     fn write_reg(&mut self, value: i16, reg: RegisterAccess) {
         use Register::*;
         match reg.reg {
-            Sp => { print!("sp:0x{:0<4X}->0x{:0<4X}",self.regs[4], value); self.regs[4] = value},
-            Bp => { print!("bp:0x{:0<4X}->0x{:0<4X}",self.regs[5], value); self.regs[5] = value},
-            Si => { print!("si:0x{:0<4X}->0x{:0<4X}",self.regs[6], value); self.regs[6] = value},
-            Di => { print!("di:0x{:0<4X}->0x{:0<4X}",self.regs[7], value); self.regs[7] = value},
+            Sp => {
+                print!("sp:0x{:X}->0x{:X}", self.regs[4], value);
+                self.regs[4] = value
+            }
+            Bp => {
+                print!("bp:0x{:X}->0x{:X}", self.regs[5], value);
+                self.regs[5] = value
+            }
+            Si => {
+                print!("si:0x{:X}->0x{:X}", self.regs[6], value);
+                self.regs[6] = value
+            }
+            Di => {
+                print!("di:0x{:X}->0x{:X}", self.regs[7], value);
+                self.regs[7] = value
+            }
             _ => match reg.width {
                 OpWidth::Word => match reg.reg {
-                    A => {print!("ax:0x{:0<4X}->0x{:0<4X}", self.regs[0], value) ; self.regs[0] = value},
-                    C => {print!("cx:0x{:0<4X}->0x{:0<4X}", self.regs[1], value) ; self.regs[1] = value},
-                    D => {print!("dx:0x{:0<4X}->0x{:0<4X}", self.regs[2], value) ; self.regs[2] = value},
-                    B => {print!("bx:0x{:0<4X}->0x{:0<4X}", self.regs[3], value) ; self.regs[3] = value},
+                    A => {
+                        print!("ax:0x{:X}->0x{:X}", self.regs[0], value);
+                        self.regs[0] = value
+                    }
+                    B => {
+                        print!("bx:0x{:X}->0x{:X}", self.regs[1], value);
+                        self.regs[1] = value
+                    }
+                    C => {
+                        print!("cx:0x{:X}->0x{:X}", self.regs[2], value);
+                        self.regs[2] = value
+                    }
+                    D => {
+                        print!("dx:0x{:X}->0x{:X}", self.regs[3], value);
+                        self.regs[3] = value
+                    }
                     _ => panic!("impossible"),
                 },
                 OpWidth::Byte => {
@@ -97,9 +135,9 @@ impl Registers {
 
                     let original: i16 = match reg.reg {
                         A => self.regs[0],
-                        C => self.regs[1],
-                        D => self.regs[2],
-                        B => self.regs[3],
+                        B => self.regs[1],
+                        C => self.regs[2],
+                        D => self.regs[3],
                         _ => panic!("impossible"),
                     };
                     let new = if reg.offset != 0 {
@@ -108,10 +146,22 @@ impl Registers {
                         (original & -256/* 0xFF00 */) | value
                     };
                     match reg.reg {
-                        A => {print!("ax:0x{:0<4X}->0x{:0<4X}", self.regs[0], new ); self.regs[0] = new},
-                        C => {print!("cx:0x{:0<4X}->0x{:0<4X}", self.regs[1], new ); self.regs[1] = new},
-                        D => {print!("dx:0x{:0<4X}->0x{:0<4X}", self.regs[2], new ); self.regs[2] = new},
-                        B => {print!("bx:0x{:0<4X}->0x{:0<4X}", self.regs[3], new ); self.regs[3] = new},
+                        A => {
+                            print!("ax:0x{:X}->0x{:X}", self.regs[0], new);
+                            self.regs[0] = new
+                        }
+                        B => {
+                            print!("bx:0x{:X}->0x{:X}", self.regs[1], new);
+                            self.regs[1] = new
+                        }
+                        C => {
+                            print!("cx:0x{:X}->0x{:X}", self.regs[2], new);
+                            self.regs[2] = new
+                        }
+                        D => {
+                            print!("dx:0x{:X}->0x{:X}", self.regs[3], new);
+                            self.regs[3] = new
+                        }
                         _ => panic!("impossible"),
                     };
                 }
@@ -132,10 +182,22 @@ impl Registers {
     fn write_seg_reg(&mut self, reg: SegmentRegister, value: i16) {
         use SegmentRegister::*;
         match reg {
-            Es => {print!("es:0x{:0<4X}->0x{:0<4X}", self.seg_regs[0], value); self.seg_regs[0] = value},
-            Cs => {print!("cs:0x{:0<4X}->0x{:0<4X}", self.seg_regs[1], value); self.seg_regs[1] = value},
-            Ss => {print!("ss:0x{:0<4X}->0x{:0<4X}", self.seg_regs[2], value); self.seg_regs[2] = value},
-            Ds => {print!("ds:0x{:0<4X}->0x{:0<4X}", self.seg_regs[3], value); self.seg_regs[3] = value},
+            Es => {
+                print!("es:0x{:X}->0x{:X}", self.seg_regs[0], value);
+                self.seg_regs[0] = value
+            }
+            Cs => {
+                print!("cs:0x{:X}->0x{:X}", self.seg_regs[1], value);
+                self.seg_regs[1] = value
+            }
+            Ss => {
+                print!("ss:0x{:X}->0x{:X}", self.seg_regs[2], value);
+                self.seg_regs[2] = value
+            }
+            Ds => {
+                print!("ds:0x{:X}->0x{:X}", self.seg_regs[3], value);
+                self.seg_regs[3] = value
+            }
         }
     }
 }
@@ -163,28 +225,34 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
     }
     println!();
     println!("Final registers:");
-    println!("    ax: 0x{:0<4X} ({0})", state.registers.regs[0]);
-    println!("    bx: 0x{:0<4X} ({0})", state.registers.regs[3]);
-    println!("    cx: 0x{:0<4X} ({0})", state.registers.regs[1]);
-    println!("    dx: 0x{:0<4X} ({0})", state.registers.regs[2]);
-    println!("    sp: 0x{:0<4X} ({0})", state.registers.regs[4]);
-    println!("    bp: 0x{:0<4X} ({0})", state.registers.regs[5]);
-    println!("    si: 0x{:0<4X} ({0})", state.registers.regs[6]);
-    println!("    di: 0x{:0<4X} ({0})", state.registers.regs[7]);
-    println!("    es: 0x{:0<4X} ({0})", state.registers.seg_regs[0]);
-    println!("    cs: 0x{:0<4X} ({0})", state.registers.seg_regs[1]);
-    println!("    ss: 0x{:0<4X} ({0})", state.registers.seg_regs[2]);
-    println!("    ds: 0x{:0<4X} ({0})", state.registers.seg_regs[3]);
+    println!("    ax: 0x{:X} ({0})", state.registers.regs[0]);
+    println!("    bx: 0x{:X} ({0})", state.registers.regs[1]);
+    println!("    cx: 0x{:X} ({0})", state.registers.regs[2]);
+    println!("    dx: 0x{:X} ({0})", state.registers.regs[3]);
+    println!("    sp: 0x{:X} ({0})", state.registers.regs[4]);
+    println!("    bp: 0x{:X} ({0})", state.registers.regs[5]);
+    println!("    si: 0x{:X} ({0})", state.registers.regs[6]);
+    println!("    di: 0x{:X} ({0})", state.registers.regs[7]);
+    println!("    es: 0x{:X} ({0})", state.registers.seg_regs[0]);
+    println!("    cs: 0x{:X} ({0})", state.registers.seg_regs[1]);
+    println!("    ss: 0x{:X} ({0})", state.registers.seg_regs[2]);
+    println!("    ds: 0x{:X} ({0})", state.registers.seg_regs[3]);
+    println!(" flags: {:?}", state.registers.flags);
 
     Ok(())
 }
 
 fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
+
     match instruction {
         Instruction::ImmediateMovReg { reg, data } => {
             state.registers.write_reg(data, reg);
         }
-        Instruction::ImmediateMovRegMem { width: _, reg_or_mem, data } => {
+        Instruction::ImmediateMovRegMem {
+            width: _,
+            reg_or_mem,
+            data,
+        } => {
             match reg_or_mem {
                 sim8086::ops::RegOrMem::Mem(ref _ea) => todo!(),
                 sim8086::ops::RegOrMem::Reg(access) => {
@@ -219,6 +287,71 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
                 }
             },
         },
+        Instruction::ArithmeticFromToRegMem { op, dir, reg, reg_or_mem } => match reg_or_mem {
+            sim8086::ops::RegOrMem::Mem(_) => todo!(),
+            sim8086::ops::RegOrMem::Reg(reg_access) => match dir {
+                sim8086::ops::Direction::FromRegister => {
+                    let one = state.registers.read_reg(reg_access);
+                    let two = state.registers.read_reg(reg);
+                    let result = evaluate_op(op, one, two);
+                    if store_result(op) {
+                        state.registers.write_reg(result, reg_access);
+                    }
+                    if result == 0 {
+                        state.registers.flags.set(Flags::Zero, true);
+                    } else {
+                        state.registers.flags.set(Flags::Zero, false);
+                    }
+                    print!(" flags: {:?}", state.registers.flags);
+                }
+                sim8086::ops::Direction::ToRegister => {
+                    let one = state.registers.read_reg(reg);
+                    let two = state.registers.read_reg(reg_access);
+                    let result = evaluate_op(op, one, two);
+                    if store_result(op) {
+                        state.registers.write_reg(result, reg);
+                    }
+                    if result == 0 {
+                        state.registers.flags.set(Flags::Zero, true);
+                    } else {
+                        state.registers.flags.set(Flags::Zero, false);
+                    }
+                    print!(" flags: {:?}", state.registers.flags);
+                }
+            },
+        },
+        Instruction::ArithmeticImmediateToRegMem { op, width: _, data, reg_or_mem } => match reg_or_mem {
+            RegOrMem::Mem(_) => todo!(),
+            RegOrMem::Reg(reg_access) => {
+                let one = data;
+                let two = state.registers.read_reg(reg_access);
+                let result = evaluate_op(op, one, two);
+                if store_result(op) {
+                    state.registers.write_reg(result, reg_access);
+                }
+                if result == 0 {
+                    state.registers.flags.set(Flags::Zero, true);
+                } else {
+                    state.registers.flags.set(Flags::Zero, false);
+                }
+                print!(" flags: {:?}", state.registers.flags);
+            }
+        }
         _ => todo!(),
+    }
+}
+
+fn evaluate_op(op: ArithmeticOp, one: i16, two: i16) -> i16 {
+    match op {
+        ArithmeticOp::Add => one.wrapping_add(two),
+        ArithmeticOp::Sub | ArithmeticOp::Cmp => one.wrapping_sub(two),
+        _ => panic!(),
+    }
+}
+
+fn store_result(op: ArithmeticOp) -> bool {
+    match op {
+        ArithmeticOp::Cmp => false,
+        _ => true,
     }
 }
