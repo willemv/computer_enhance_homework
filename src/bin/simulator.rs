@@ -1,8 +1,8 @@
-use bitflags::bitflags;
 use std::{env, error::Error, fmt::Debug, fs, path::Path};
 
 use sim8086::{
     decoder::Decoder,
+    flag_registers::Flags,
     ops::{ArithmeticOp, Instruction, OpWidth, Register, RegisterAccess, SegmentRegister, RegOrMem},
 };
 
@@ -38,22 +38,15 @@ impl CpuState {
     }
 }
 
-bitflags! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    struct Flags: u16 {
-        const Sign = 0b1000_0000;
-        const Zero = 0b0100_0000;
-        const AuxiliaryCarry = 0b0001_0000;
-        const Parity = 0b0000_0100;
-        const Carry = 0b0000_0001;
-    }
-}
-
 #[derive(Debug)]
 struct Registers {
     regs: [i16; 8],     //layout: AX, BX, CX, DX, SP, BP, SI, DI
     seg_regs: [i16; 4], //layout: ES, CS, SS, DS
     flags: Flags,
+}
+
+fn print_reg(name: &str, old: i16, new: i16) {
+    print!("{}:0x{:X}->0x{:X}", name, old, new);
 }
 
 impl Registers {
@@ -94,37 +87,37 @@ impl Registers {
         use Register::*;
         match reg.reg {
             Sp => {
-                print!("sp:0x{:X}->0x{:X}", self.regs[4], value);
+                print_reg("sp", self.regs[4], value);
                 self.regs[4] = value
             }
             Bp => {
-                print!("bp:0x{:X}->0x{:X}", self.regs[5], value);
+                print_reg("bp", self.regs[5], value);
                 self.regs[5] = value
             }
             Si => {
-                print!("si:0x{:X}->0x{:X}", self.regs[6], value);
+                print_reg("si", self.regs[6], value);
                 self.regs[6] = value
             }
             Di => {
-                print!("di:0x{:X}->0x{:X}", self.regs[7], value);
+                print_reg("di", self.regs[7], value);
                 self.regs[7] = value
             }
             _ => match reg.width {
                 OpWidth::Word => match reg.reg {
                     A => {
-                        print!("ax:0x{:X}->0x{:X}", self.regs[0], value);
+                        print_reg("ax", self.regs[0], value);
                         self.regs[0] = value
                     }
                     B => {
-                        print!("bx:0x{:X}->0x{:X}", self.regs[1], value);
+                        print_reg("bx", self.regs[1], value);
                         self.regs[1] = value
                     }
                     C => {
-                        print!("cx:0x{:X}->0x{:X}", self.regs[2], value);
+                        print_reg("cx", self.regs[2], value);
                         self.regs[2] = value
                     }
                     D => {
-                        print!("dx:0x{:X}->0x{:X}", self.regs[3], value);
+                        print_reg("dx", self.regs[3], value);
                         self.regs[3] = value
                     }
                     _ => panic!("impossible"),
@@ -147,19 +140,19 @@ impl Registers {
                     };
                     match reg.reg {
                         A => {
-                            print!("ax:0x{:X}->0x{:X}", self.regs[0], new);
+                            print_reg("ax", self.regs[0], new);
                             self.regs[0] = new
                         }
                         B => {
-                            print!("bx:0x{:X}->0x{:X}", self.regs[1], new);
+                            print_reg("bx", self.regs[1], new);
                             self.regs[1] = new
                         }
                         C => {
-                            print!("cx:0x{:X}->0x{:X}", self.regs[2], new);
+                            print_reg("cx", self.regs[2], new);
                             self.regs[2] = new
                         }
                         D => {
-                            print!("dx:0x{:X}->0x{:X}", self.regs[3], new);
+                            print_reg("dx", self.regs[3], new);
                             self.regs[3] = new
                         }
                         _ => panic!("impossible"),
@@ -183,19 +176,19 @@ impl Registers {
         use SegmentRegister::*;
         match reg {
             Es => {
-                print!("es:0x{:X}->0x{:X}", self.seg_regs[0], value);
+                print_reg("es", self.seg_regs[0], value);
                 self.seg_regs[0] = value
             }
             Cs => {
-                print!("cs:0x{:X}->0x{:X}", self.seg_regs[1], value);
+                print_reg("cs", self.seg_regs[1], value);
                 self.seg_regs[1] = value
             }
             Ss => {
-                print!("ss:0x{:X}->0x{:X}", self.seg_regs[2], value);
+                print_reg("ss", self.seg_regs[2], value);
                 self.seg_regs[2] = value
             }
             Ds => {
-                print!("ds:0x{:X}->0x{:X}", self.seg_regs[3], value);
+                print_reg("ds", self.seg_regs[3], value);
                 self.seg_regs[3] = value
             }
         }
@@ -238,7 +231,7 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
     print_register("ss", state.registers.seg_regs[2]);
     print_register("ds", state.registers.seg_regs[3]);
     if !state.registers.flags.is_empty() {
-        println!(" flags: {:?}", state.registers.flags);
+        println!(" flags: {}", state.registers.flags);
     }
 
     Ok(())
@@ -251,7 +244,6 @@ fn print_register(name: &str, value: i16) {
 }
 
 fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
-
     match instruction {
         Instruction::ImmediateMovReg { reg, data } => {
             state.registers.write_reg(data, reg);
@@ -299,32 +291,24 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
             sim8086::ops::RegOrMem::Mem(_) => todo!(),
             sim8086::ops::RegOrMem::Reg(reg_access) => match dir {
                 sim8086::ops::Direction::FromRegister => {
-                    let one = state.registers.read_reg(reg_access);
-                    let two = state.registers.read_reg(reg);
+                    //TODO hmm, this matches Casey's code but still feels wrong
+                    //  read the spec to figure it out
+                    let one = state.registers.read_reg(reg);
+                    let two = state.registers.read_reg(reg_access);
                     let result = evaluate_op(op, one, two);
                     if store_result(op) {
-                        state.registers.write_reg(result, reg_access);
+                        state.registers.write_reg(result.0, reg_access);
                     }
-                    if result == 0 {
-                        state.registers.flags.set(Flags::Zero, true);
-                    } else {
-                        state.registers.flags.set(Flags::Zero, false);
-                    }
-                    print!(" flags: {:?}", state.registers.flags);
+                    update_flags(state, result, Flags::arithmetic_flags());
                 }
                 sim8086::ops::Direction::ToRegister => {
                     let one = state.registers.read_reg(reg);
                     let two = state.registers.read_reg(reg_access);
                     let result = evaluate_op(op, one, two);
                     if store_result(op) {
-                        state.registers.write_reg(result, reg);
+                        state.registers.write_reg(result.0, reg);
                     }
-                    if result == 0 {
-                        state.registers.flags.set(Flags::Zero, true);
-                    } else {
-                        state.registers.flags.set(Flags::Zero, false);
-                    }
-                    print!(" flags: {:?}", state.registers.flags);
+                    update_flags(state, result, Flags::arithmetic_flags());
                 }
             },
         },
@@ -335,26 +319,58 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
                 let two = state.registers.read_reg(reg_access);
                 let result = evaluate_op(op, one, two);
                 if store_result(op) {
-                    state.registers.write_reg(result, reg_access);
+                    state.registers.write_reg(result.0, reg_access);
                 }
-                if result == 0 {
-                    state.registers.flags.set(Flags::Zero, true);
-                } else {
-                    state.registers.flags.set(Flags::Zero, false);
-                }
-                print!(" flags: {:?}", state.registers.flags);
+                update_flags(state, result, Flags::arithmetic_flags());
             }
         }
         _ => todo!(),
     }
 }
 
-fn evaluate_op(op: ArithmeticOp, one: i16, two: i16) -> i16 {
+fn evaluate_op(op: ArithmeticOp, one: i16, two: i16) -> (i16, bool, bool) {
     match op {
-        ArithmeticOp::Add => one.wrapping_add(two),
-        ArithmeticOp::Sub | ArithmeticOp::Cmp => one.wrapping_sub(two),
+        ArithmeticOp::Add => {
+            let result = one.overflowing_add(two);
+            (result.0, one < 0 && result.0 >= 0, result.1)
+        }
+        ArithmeticOp::Sub | ArithmeticOp::Cmp => {
+            let result = two.overflowing_sub(one);
+            (result.0, one >= 0 && result.0 < 0, result.1)
+        }
         _ => panic!(),
     }
+}
+
+fn update_flags(state: &mut CpuState, result: (i16, bool, bool), flags: Flags) {
+    print!(" flags: ({}) ", state.registers.flags);
+
+    let carry = result.1;
+    let overflow = result.2;
+    let result = result.0;
+    if flags.contains(Flags::Z) {
+        state.registers.flags.set(Flags::Z, result == 0);
+    }
+    if flags.contains(Flags::S) {
+        state.registers.flags.set(Flags::S, result < 0);
+    }
+    if flags.contains(Flags::P) {
+        /* From the Intel manual:
+                PF (parity flag): If the low-order eight bits of
+                an arithmetic or logical result contain an
+                even number of 1-bits, then the parity flag is
+                set; otherwise it is cleared. PF is provided for
+                8080/8085 compatibility; it also can be used
+                to check ASCII characters for correct parity. */
+        state.registers.flags.set(Flags::P, (result & 0xff).count_ones() % 2 == 0);
+    }
+    if flags.contains(Flags::C) {
+        state.registers.flags.set(Flags::C, carry);
+    }
+    if flags.contains(Flags::O) {
+        state.registers.flags.set(Flags::O, overflow);
+    }
+    print!("-> ({})", state.registers.flags);
 }
 
 fn store_result(op: ArithmeticOp) -> bool {
