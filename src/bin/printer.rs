@@ -1,8 +1,10 @@
 use std::collections::{BTreeSet, HashMap};
+use std::fs::File;
 use std::path::Path;
 use std::{env, fs};
 
 use sim8086::decoder::Decoder;
+use sim8086::memory::Memory;
 use sim8086::ops::Instruction;
 
 fn main() {
@@ -24,9 +26,13 @@ fn main() {
 
 fn encode_to_assembler<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     let decoder = Decoder::new();
+    let mut memory = Memory::new();
 
     let bytes = fs::read(path)?;
-    let mut iter = bytes.iter().enumerate().peekable();
+    memory.copy_from_slice(&bytes, 0);
+    memory.dump(&mut File::create("scratch/dump.data")?)?;
+
+    let mut iter = memory.iter(bytes.len()).enumerate().peekable();
     println!("bits 16");
 
     let mut decoded_instructions: Vec<(usize, usize, Instruction)> = vec![];

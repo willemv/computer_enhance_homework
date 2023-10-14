@@ -225,21 +225,29 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
     }
     println!();
     println!("Final registers:");
-    println!("    ax: 0x{:X} ({0})", state.registers.regs[0]);
-    println!("    bx: 0x{:X} ({0})", state.registers.regs[1]);
-    println!("    cx: 0x{:X} ({0})", state.registers.regs[2]);
-    println!("    dx: 0x{:X} ({0})", state.registers.regs[3]);
-    println!("    sp: 0x{:X} ({0})", state.registers.regs[4]);
-    println!("    bp: 0x{:X} ({0})", state.registers.regs[5]);
-    println!("    si: 0x{:X} ({0})", state.registers.regs[6]);
-    println!("    di: 0x{:X} ({0})", state.registers.regs[7]);
-    println!("    es: 0x{:X} ({0})", state.registers.seg_regs[0]);
-    println!("    cs: 0x{:X} ({0})", state.registers.seg_regs[1]);
-    println!("    ss: 0x{:X} ({0})", state.registers.seg_regs[2]);
-    println!("    ds: 0x{:X} ({0})", state.registers.seg_regs[3]);
-    println!(" flags: {:?}", state.registers.flags);
+    print_register("ax", state.registers.regs[0]);
+    print_register("bx", state.registers.regs[1]);
+    print_register("cx", state.registers.regs[2]);
+    print_register("dx", state.registers.regs[3]);
+    print_register("sp", state.registers.regs[4]);
+    print_register("bp", state.registers.regs[5]);
+    print_register("si", state.registers.regs[6]);
+    print_register("di", state.registers.regs[7]);
+    print_register("es", state.registers.seg_regs[0]);
+    print_register("cs", state.registers.seg_regs[1]);
+    print_register("ss", state.registers.seg_regs[2]);
+    print_register("ds", state.registers.seg_regs[3]);
+    if !state.registers.flags.is_empty() {
+        println!(" flags: {:?}", state.registers.flags);
+    }
 
     Ok(())
+}
+
+fn print_register(name: &str, value: i16) {
+    if value == 0 { return; }
+    let value = value as u16;
+    println!("    {name}: 0x{value:X} ({value})");
 }
 
 fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
