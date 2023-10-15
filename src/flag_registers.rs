@@ -1,7 +1,6 @@
 use std::fmt::{Display, Formatter};
 
 use bitflags::bitflags;
-use bitflags::parser;
 
 bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
