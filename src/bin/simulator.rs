@@ -46,7 +46,7 @@ struct Registers {
 }
 
 fn print_reg(name: &str, old: i16, new: i16) {
-    print!("{}:0x{:X}->0x{:X}", name, old, new);
+    print!("{}:0x{:x}->0x{:x}", name, old, new);
 }
 
 impl Registers {
@@ -240,7 +240,7 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
 fn print_register(name: &str, value: i16) {
     if value == 0 { return; }
     let value = value as u16;
-    println!("    {name}: 0x{value:X} ({value})");
+    println!("    {name}: 0x{value:04x} ({value})");
 }
 
 fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
@@ -254,16 +254,16 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
             data,
         } => {
             match reg_or_mem {
-                sim8086::ops::RegOrMem::Mem(ref _ea) => todo!(),
-                sim8086::ops::RegOrMem::Reg(access) => {
+                RegOrMem::Mem(ref _ea) => todo!(),
+                RegOrMem::Reg(access) => {
                     state.registers.write_reg(data, access);
                 }
             }
             todo!()
         }
         Instruction::MovToFromRegMem { dir, reg, reg_or_mem } => match reg_or_mem {
-            sim8086::ops::RegOrMem::Mem(_) => todo!(),
-            sim8086::ops::RegOrMem::Reg(reg_access) => match dir {
+            RegOrMem::Mem(_) => todo!(),
+            RegOrMem::Reg(reg_access) => match dir {
                 sim8086::ops::Direction::FromRegister => {
                     let v = state.registers.read_reg(reg);
                     state.registers.write_reg(v, reg_access)
@@ -275,8 +275,8 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
             },
         },
         Instruction::SegmentRegisterMove { dir, seg_reg, reg_or_mem } => match reg_or_mem {
-            sim8086::ops::RegOrMem::Mem(_) => todo!(),
-            sim8086::ops::RegOrMem::Reg(reg_access) => match dir {
+            RegOrMem::Mem(_) => todo!(),
+            RegOrMem::Reg(reg_access) => match dir {
                 sim8086::ops::Direction::FromRegister => {
                     let value = state.registers.read_seg_reg(seg_reg);
                     state.registers.write_reg(value, reg_access);
@@ -288,73 +288,91 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
             },
         },
         Instruction::ArithmeticFromToRegMem { op, dir, reg, reg_or_mem } => match reg_or_mem {
-            sim8086::ops::RegOrMem::Mem(_) => todo!(),
-            sim8086::ops::RegOrMem::Reg(reg_access) => match dir {
+            RegOrMem::Mem(_) => todo!(),
+            RegOrMem::Reg(reg_access) => match dir {
                 sim8086::ops::Direction::FromRegister => {
                     //TODO hmm, this matches Casey's code but still feels wrong
                     //  read the spec to figure it out
-                    let one = state.registers.read_reg(reg);
-                    let two = state.registers.read_reg(reg_access);
-                    let result = evaluate_op(op, one, two);
+                    let one = state.registers.read_reg(reg_access);
+                    let two = state.registers.read_reg(reg);
+                    let (result, flags) = evaluate_op(op, one, two);
                     if store_result(op) {
-                        state.registers.write_reg(result.0, reg_access);
+                        state.registers.write_reg(result, reg_access);
                     }
-                    update_flags(state, result, Flags::arithmetic_flags());
+                    update_flags(state, (result, flags), Flags::arithmetic_flags());
                 }
                 sim8086::ops::Direction::ToRegister => {
                     let one = state.registers.read_reg(reg);
                     let two = state.registers.read_reg(reg_access);
-                    let result = evaluate_op(op, one, two);
+                    let (result, flags) = evaluate_op(op, one, two);
                     if store_result(op) {
-                        state.registers.write_reg(result.0, reg);
+                        state.registers.write_reg(result, reg);
                     }
-                    update_flags(state, result, Flags::arithmetic_flags());
+                    update_flags(state, (result, flags), Flags::arithmetic_flags());
                 }
             },
         },
         Instruction::ArithmeticImmediateToRegMem { op, width: _, data, reg_or_mem } => match reg_or_mem {
             RegOrMem::Mem(_) => todo!(),
             RegOrMem::Reg(reg_access) => {
-                let one = data;
-                let two = state.registers.read_reg(reg_access);
-                let result = evaluate_op(op, one, two);
+                let one = state.registers.read_reg(reg_access);
+                let two = data;
+                let (result, flags) = evaluate_op(op, one, two);
                 if store_result(op) {
-                    state.registers.write_reg(result.0, reg_access);
+                    state.registers.write_reg(result, reg_access);
                 }
-                update_flags(state, result, Flags::arithmetic_flags());
+                update_flags(state, (result, flags), Flags::arithmetic_flags());
             }
         }
         _ => todo!(),
     }
 }
 
-fn evaluate_op(op: ArithmeticOp, one: i16, two: i16) -> (i16, bool, bool) {
+fn evaluate_op(op: ArithmeticOp, one: i16, two: i16) -> (i16, Flags) {
     match op {
         ArithmeticOp::Add => {
-            let result = one.overflowing_add(two);
-            (result.0, one < 0 && result.0 >= 0, result.1)
+            let (result, overflow) = one.overflowing_add(two);
+
+            let mut flags = Flags::empty();
+            if overflow { flags |= Flags::Overflow; }
+            if (result as u16) < (one as u16) { flags |= Flags::Carry }
+
+            let o = (one as u16) & 0xf;
+            let t = (two as u16) & 0xf;
+            let aux_carry = (o + t) >= 16;
+            if aux_carry {flags |= Flags::AuxiliaryCarry}
+
+            (result, flags)
         }
         ArithmeticOp::Sub | ArithmeticOp::Cmp => {
-            let result = two.overflowing_sub(one);
-            (result.0, one >= 0 && result.0 < 0, result.1)
+            let (result, overflow) = one.overflowing_sub(two);
+
+            let mut flags = Flags::empty();
+            if overflow { flags |= Flags::Overflow }
+            if (result as u16) > (one as u16) { flags |= Flags::Carry }
+
+            let o = (one as u16) & 0xf;
+            let t = (two as u16) & 0xf;
+            let (_, aux_carry) = o.overflowing_sub(t);
+            if aux_carry {flags |= Flags::AuxiliaryCarry}
+
+            (result, flags)
         }
-        _ => panic!(),
+        _ => todo!(),
     }
 }
 
-fn update_flags(state: &mut CpuState, result: (i16, bool, bool), flags: Flags) {
-    print!(" flags: ({}) ", state.registers.flags);
+fn update_flags(state: &mut CpuState, result: (i16, Flags), flags: Flags) {
+    print!(" flags:{}", state.registers.flags);
 
-    let carry = result.1;
-    let overflow = result.2;
-    let result = result.0;
-    if flags.contains(Flags::Z) {
-        state.registers.flags.set(Flags::Z, result == 0);
+    let (result, op_flags) = result;
+    if flags.contains(Flags::Zero) {
+        state.registers.flags.set(Flags::Zero, result == 0);
     }
-    if flags.contains(Flags::S) {
-        state.registers.flags.set(Flags::S, result < 0);
+    if flags.contains(Flags::Sign) {
+        state.registers.flags.set(Flags::Sign, result < 0);
     }
-    if flags.contains(Flags::P) {
+    if flags.contains(Flags::Parity) {
         /* From the Intel manual:
                 PF (parity flag): If the low-order eight bits of
                 an arithmetic or logical result contain an
@@ -362,20 +380,84 @@ fn update_flags(state: &mut CpuState, result: (i16, bool, bool), flags: Flags) {
                 set; otherwise it is cleared. PF is provided for
                 8080/8085 compatibility; it also can be used
                 to check ASCII characters for correct parity. */
-        state.registers.flags.set(Flags::P, (result & 0xff).count_ones() % 2 == 0);
+        state.registers.flags.set(Flags::Parity, (result & 0xff).count_ones() % 2 == 0);
     }
-    if flags.contains(Flags::C) {
-        state.registers.flags.set(Flags::C, carry);
+    if flags.contains(Flags::Carry) {
+        state.registers.flags.set(Flags::Carry, op_flags.contains(Flags::Carry));
     }
-    if flags.contains(Flags::O) {
-        state.registers.flags.set(Flags::O, overflow);
+    if flags.contains(Flags::Overflow) {
+        state.registers.flags.set(Flags::Overflow, op_flags.contains(Flags::Overflow));
     }
-    print!("-> ({})", state.registers.flags);
+    if flags.contains(Flags::AuxiliaryCarry) {
+        state.registers.flags.set(Flags::AuxiliaryCarry, op_flags.contains(Flags::AuxiliaryCarry));
+    }
+    print!("->{}", state.registers.flags);
 }
 
 fn store_result(op: ArithmeticOp) -> bool {
     match op {
         ArithmeticOp::Cmp => false,
         _ => true,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use sim8086::flag_registers::Flags;
+    use sim8086::ops::ArithmeticOp;
+    use crate::evaluate_op;
+
+    #[test]
+    fn evaluate_op_add_overflow() {
+        let (result, flags) = evaluate_op(ArithmeticOp::Add, i16::MAX, 1);
+        let s = format!("{}", flags);
+        print!("{}", s);
+
+        assert!(flags.contains(Flags::Overflow));
+    }
+
+    #[test]
+    fn evaluate_op_add_carry() {
+        let (result, flags) = evaluate_op(ArithmeticOp::Add, -1, 1);
+        let s = format!("{}", flags);
+        print!("{}", s);
+
+        assert!(flags.contains(Flags::Carry));
+    }
+
+    #[test]
+    fn evaluate_op_add_aux_carry() {
+        let (result, flags) = evaluate_op(ArithmeticOp::Add, 10, 10);
+        let s = format!("{}", flags);
+        print!("{}", s);
+
+        assert!(flags.contains(Flags::AuxiliaryCarry));
+    }
+
+    #[test]
+    fn evaluate_op_sub_overflow() {
+        let (result, flags) = evaluate_op(ArithmeticOp::Sub, i16::MIN, 1);
+        let s = format!("{}", flags);
+        print!("{}", s);
+
+        assert!(flags.contains(Flags::Overflow));
+    }
+
+    #[test]
+    fn evaluate_op_sub_carry() {
+        let (result, flags) = evaluate_op(ArithmeticOp::Sub, 0, 1);
+        let s = format!("{}", flags);
+        print!("{}", s);
+
+        assert!(flags.contains(Flags::Carry));
+    }
+
+    #[test]
+    fn evaluate_op_sub_aux_carry() {
+        let (result, flags) = evaluate_op(ArithmeticOp::Sub, 20, 10);
+        let s = format!("{}", flags);
+        print!("{}", s);
+
+        assert!(flags.contains(Flags::AuxiliaryCarry));
     }
 }
