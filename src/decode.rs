@@ -226,18 +226,29 @@ fn effective_address_base2(mem: u8) -> EffectiveAddressBase {
     }
 }
 
-fn decode_i8(lo: &u8) -> i16 {
+fn decode_i8(bytes: &mut dyn Iterator<Item = &u8>) -> i16  {
+    let lo = bytes.next().unwrap();
     i8::from_le_bytes([*lo]) as i16
 }
 
-fn decode_i16(lo: &u8, hi: &u8) -> i16 {
+// fn decode_i8(lo: &u8) -> i16 {
+//     i8::from_le_bytes([*lo]) as i16
+// }
+
+fn decode_i16(bytes: &mut dyn Iterator<Item = &u8>) -> i16 {
+    let lo = bytes.next().unwrap();
+    let hi = bytes.next().unwrap();
     i16::from_le_bytes([*lo, *hi])
 }
 
+// fn decode_i16(lo: &u8, hi: &u8) -> i16 {
+//     i16::from_le_bytes([*lo, *hi])
+// }
+
 fn decode_immediate(bytes: &mut dyn Iterator<Item = &u8>, width: OpWidth) -> i16 {
     match width {
-        OpWidth::Byte => decode_i8(bytes.next().unwrap()),
-        OpWidth::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
+        OpWidth::Byte => decode_i8(bytes),
+        OpWidth::Word => decode_i16(bytes),
     }
 }
 
@@ -279,18 +290,18 @@ fn decode_seg_reg(seg_reg: u8) -> SegmentRegister {
 
 fn decode_address(bytes: &mut dyn Iterator<Item = &u8>, width: OpWidth) -> i16 {
     match width {
-        OpWidth::Byte => decode_i8(bytes.next().unwrap()),
-        OpWidth::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
+        OpWidth::Byte => decode_i8(bytes),
+        OpWidth::Word => decode_i16(bytes),
     }
 }
 
 fn decode_reg_or_mem(reg_or_mem: u8, mode: Mode, width: OpWidth, bytes: &mut dyn Iterator<Item = &u8>) -> RegOrMem {
     match mode {
         Mode::Register => RegOrMem::Reg(decode_reg(reg_or_mem, width)),
-        Mode::MemoryNoDisplacement if reg_or_mem == 6 => {
+        Mode::MemoryNoDisplacement if reg_or_mem == 0b110 => {
             let direct = match width {
-                OpWidth::Byte => decode_i8(bytes.next().unwrap()),
-                OpWidth::Word => decode_i16(bytes.next().unwrap(), bytes.next().unwrap()),
+                OpWidth::Byte => decode_i8(bytes),
+                OpWidth::Word => decode_i16(bytes),
             };
             RegOrMem::Mem(EffectiveAddress {
                 base: EffectiveAddressBase::Direct,
@@ -302,14 +313,14 @@ fn decode_reg_or_mem(reg_or_mem: u8, mode: Mode, width: OpWidth, bytes: &mut dyn
             displacement: 0,
         }),
         Mode::MemoryEightBitDisplacement => {
-            let displacement = decode_i8(bytes.next().unwrap());
+            let displacement = decode_i8(bytes);
             RegOrMem::Mem(EffectiveAddress {
                 base: effective_address_base2(reg_or_mem),
                 displacement,
             })
         }
         Mode::MemorySixteenBitDisplacement => {
-            let displacement = decode_i16(bytes.next().unwrap(), bytes.next().unwrap());
+            let displacement = decode_i16(bytes);
             RegOrMem::Mem(EffectiveAddress {
                 base: effective_address_base2(reg_or_mem),
                 displacement,
