@@ -5,6 +5,7 @@ use sim8086::{
     flag_registers::Flags,
     ops::{ArithmeticOp, Instruction, OpWidth, Register, RegisterAccess, SegmentRegister, RegOrMem},
 };
+use sim8086::memory::Memory;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -27,11 +28,12 @@ struct CpuState {
 }
 
 impl CpuState {
-    fn new() -> CpuState {
+        fn new() -> CpuState {
         CpuState {
             registers: Registers {
                 regs: [0i16; 8],
                 seg_regs: [0i16; 4],
+                ip: 0,
                 flags: Flags::empty(),
             },
         }
@@ -42,6 +44,7 @@ impl CpuState {
 struct Registers {
     regs: [i16; 8],     //layout: AX, BX, CX, DX, SP, BP, SI, DI
     seg_regs: [i16; 4], //layout: ES, CS, SS, DS
+    ip: usize,
     flags: Flags,
 }
 
@@ -199,12 +202,20 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
     let decoder = Decoder::new();
 
     let bytes = fs::read(path)?;
-    let mut iter = bytes.iter();
+    let program_length = bytes.len();
+    // let mut iter = bytes.iter();
 
     let mut state = CpuState::new();
+    let mut memory = Memory::new();
+    memory.copy_from_slice(&bytes, 0);
 
     loop {
-        let instruction = decoder.decode_next(&mut iter);
+        let ip_before = state.registers.ip;
+        let mut iter = memory.iter(state.registers.ip, program_length).enumerate().peekable();
+        let instruction = decoder.decode_next(&mut iter.by_ref().map(|(_i, byte)| byte));
+        let instruction_len = iter.peek().map(|(i, u)| *i).unwrap_or(program_length - ip_before);
+        state.registers.ip += instruction_len;
+
         if instruction.is_none() {
             break;
         }
@@ -214,7 +225,7 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
         print!("{:<20} ; ", instruction.encode(|disp| format!("{disp}")));
         simulate_instruction(&mut state, instruction);
 
-        println!("");
+        println!();
     }
     println!();
     println!("Final registers:");
@@ -230,6 +241,8 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
     print_register("cs", state.registers.seg_regs[1]);
     print_register("ss", state.registers.seg_regs[2]);
     print_register("ds", state.registers.seg_regs[3]);
+
+    println!("    ip: 0x{:04x} ({0})", state.registers.ip);
     if !state.registers.flags.is_empty() {
         println!(" flags: {}", state.registers.flags);
     }
@@ -323,7 +336,27 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
                 }
                 update_flags(state, (result, flags), Flags::arithmetic_flags());
             }
-        }
+        },
+        Instruction::JumpOnEqual(offset) => {
+            if state.registers.flags.contains(Flags::Zero) {
+                state.registers.ip = state.registers.ip.overflowing_add_signed(offset as isize).0;
+            }
+        },
+        Instruction::JumpOnNotEqual(offset) => {
+            if !state.registers.flags.contains(Flags::Zero) {
+                state.registers.ip = state.registers.ip.overflowing_add_signed(offset as isize).0;
+            }
+        },
+        Instruction::JumpOnSign(offset) => {
+            if state.registers.flags.contains(Flags::Sign) {
+                state.registers.ip = state.registers.ip.overflowing_add_signed(offset as isize).0;
+            }
+        },
+        Instruction::JumpOnNotSign(offset) => {
+            if !state.registers.flags.contains(Flags::Sign) {
+                state.registers.ip = state.registers.ip.overflowing_add_signed(offset as isize).0;
+            }
+        },
         _ => todo!(),
     }
 }

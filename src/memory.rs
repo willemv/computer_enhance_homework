@@ -15,8 +15,8 @@ impl Memory {
         self.data[offset..offset + data.len()].copy_from_slice(data);
     }
 
-    pub fn iter(&self, limit: usize) -> impl Iterator<Item = &u8> {
-      self.data[0..limit].iter()
+    pub fn iter(&self, offset: usize, limit: usize) -> impl Iterator<Item = &u8> {
+      self.data[offset..limit].iter()
     }
 
     pub fn get(&self, offset: usize) -> Option<&u8> {

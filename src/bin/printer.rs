@@ -32,7 +32,7 @@ fn encode_to_assembler<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     memory.copy_from_slice(&bytes, 0);
     memory.dump(&mut File::create("scratch/dump.data")?)?;
 
-    let mut iter = memory.iter(bytes.len()).enumerate().peekable();
+    let mut iter = memory.iter(0, bytes.len()).enumerate().peekable();
     println!("bits 16");
 
     let mut decoded_instructions: Vec<(usize, usize, Instruction)> = vec![];
