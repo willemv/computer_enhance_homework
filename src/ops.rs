@@ -206,6 +206,7 @@ pub enum Instruction {
     ArithmeticFromToRegMem {
         op: ArithmeticOp,
         dir: Direction,
+        width: OpWidth,
         reg: RegisterAccess,
         reg_or_mem: RegOrMem,
     },
@@ -273,6 +274,7 @@ impl Instruction {
             Instruction::ArithmeticFromToRegMem {
                 op,
                 dir,
+                width: _,
                 reg,
                 ref reg_or_mem,
             } => match dir {

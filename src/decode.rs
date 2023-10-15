@@ -146,7 +146,7 @@ impl OpCodeDecoder for ArithmeticFromToRegMemDecoder {
         let reg = decode_reg((*next >> 3) & 0b0000_0111, width);
         let reg_or_mem = decode_reg_or_mem(next & 0b0000_0111, mode, width, bytes);
 
-        Instruction::ArithmeticFromToRegMem { op, dir, reg, reg_or_mem }
+        Instruction::ArithmeticFromToRegMem { op, dir, width, reg, reg_or_mem }
     }
 }
 

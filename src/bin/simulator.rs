@@ -1,4 +1,5 @@
 use std::{env, error::Error, fmt::Debug, fs, path::Path};
+use std::fs::File;
 
 use sim8086::{
     decoder::Decoder,
@@ -6,6 +7,7 @@ use sim8086::{
     ops::{ArithmeticOp, Instruction, OpWidth, Register, RegisterAccess, SegmentRegister, RegOrMem},
 };
 use sim8086::memory::Memory;
+use sim8086::ops::{Direction, EffectiveAddress, EffectiveAddressBase};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -53,6 +55,43 @@ fn print_reg(name: &str, old: i16, new: i16) {
 }
 
 impl Registers {
+
+    fn ax(&self) -> i16 {
+        self.read_reg(RegisterAccess { reg: Register::A, width: OpWidth::Word, offset: 0 })
+    }
+
+    fn bx(&self) -> i16 {
+        self.read_reg(RegisterAccess { reg: Register::B, width: OpWidth::Word, offset: 0 })
+    }
+
+    fn cx(&self) -> i16 {
+        self.read_reg(RegisterAccess { reg: Register::C, width: OpWidth::Word, offset: 0 })
+    }
+
+    fn set_cx(&mut self, value: i16) {
+        self.write_reg(value, RegisterAccess { reg: Register::C, width: OpWidth::Word, offset: 0 });
+    }
+
+    fn dx(&self) -> i16 {
+        self.read_reg(RegisterAccess { reg: Register::D, width: OpWidth::Word, offset: 0 })
+    }
+
+    fn bp(&self) -> i16 {
+        self.read_reg(RegisterAccess { reg: Register::Bp, width: OpWidth::Word, offset: 0 })
+    }
+
+    fn si(&self) -> i16 {
+        self.read_reg(RegisterAccess { reg: Register::Si, width: OpWidth::Word, offset: 0 })
+    }
+
+    fn sp(&self) -> i16 {
+        self.read_reg(RegisterAccess { reg: Register::Sp, width: OpWidth::Word, offset: 0 })
+    }
+
+    fn di(&self) -> i16 {
+        self.read_reg(RegisterAccess { reg: Register::Di, width: OpWidth::Word, offset: 0 })
+    }
+
     fn read_reg(&self, reg: RegisterAccess) -> i16 {
         use Register::*;
         match reg.reg {
@@ -201,9 +240,9 @@ impl Registers {
 fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
     let decoder = Decoder::new();
 
+    let path = path.as_ref();
     let bytes = fs::read(path)?;
     let program_length = bytes.len();
-    // let mut iter = bytes.iter();
 
     let mut state = CpuState::new();
     let mut memory = Memory::new();
@@ -211,20 +250,21 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
 
     loop {
         let ip_before = state.registers.ip;
-        let mut iter = memory.iter(state.registers.ip, program_length).enumerate().peekable();
-        let instruction = decoder.decode_next(&mut iter.by_ref().map(|(_i, byte)| byte));
-        let instruction_len = iter.peek().map(|(i, u)| *i).unwrap_or(program_length - ip_before);
-        state.registers.ip += instruction_len;
+        let instruction = {
+            let mut iter = memory.iter(state.registers.ip, program_length).enumerate().peekable();
+            let instruction = decoder.decode_next(&mut iter.by_ref().map(|(_i, byte)| byte));
+            let instruction_len = iter.peek().map(|(i, _u)| *i).unwrap_or(program_length - ip_before);
+            state.registers.ip += instruction_len;
 
-        if instruction.is_none() {
-            break;
-        }
+            if instruction.is_none() {
+                break;
+            }
 
-        let instruction = instruction.unwrap();
+            instruction.unwrap()
+        };
 
         print!("{:<20} ; ", instruction.encode(|disp| format!("{disp}")));
-        simulate_instruction(&mut state, instruction);
-
+        simulate_instruction(&mut state, &mut memory, instruction);
         println!();
     }
     println!();
@@ -247,6 +287,11 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
         println!(" flags: {}", state.registers.flags);
     }
 
+    let with_extension = path.with_extension("data");
+    let x = with_extension.file_name().unwrap();
+
+    memory.dump(&mut File::create(x).unwrap());
+
     Ok(())
 }
 
@@ -256,32 +301,94 @@ fn print_register(name: &str, value: i16) {
     println!("    {name}: 0x{value:04x} ({value})");
 }
 
-fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
+fn calculate_address(ea: EffectiveAddress, state: &CpuState) -> i16 {
+    if matches!(ea.base, EffectiveAddressBase::Direct) {
+        return ea.displacement;
+    }
+
+    let base = match ea.base {
+        EffectiveAddressBase::Direct => { panic!() }
+        EffectiveAddressBase::BxPlusSi => {state.registers.bx() + state.registers.si()}
+        EffectiveAddressBase::BxPlusDi => {state.registers.bx() + state.registers.di()}
+        EffectiveAddressBase::BpPlusSi => {state.registers.bp() + state.registers.si()}
+        EffectiveAddressBase::BpPlusDi => {state.registers.bp() + state.registers.di()}
+        EffectiveAddressBase::Si => {state.registers.si()}
+        EffectiveAddressBase::Di => {state.registers.di()}
+        EffectiveAddressBase::Bp => {state.registers.bp()}
+        EffectiveAddressBase::Bx => {state.registers.bx()}
+    };
+
+    base + ea.displacement
+}
+
+fn read_mem(mem: &Memory, state: &CpuState, effective_address: EffectiveAddress, width: OpWidth) -> i16 {
+    let address = calculate_address(effective_address, state);
+    if address < 0 { panic!(); }
+
+    match width {
+        OpWidth::Byte => {*mem.get(address as usize).unwrap() as i16}
+        OpWidth::Word => {
+            let lo = *mem.get(address as usize).unwrap();
+            let hi = *mem.get((address as usize) + 1).unwrap();
+            i16::from_le_bytes([lo, hi])
+        }
+    }
+}
+
+fn write_mem(value: i16, mem: &mut Memory, state: &CpuState, effective_address: EffectiveAddress, width: OpWidth) {
+    let address = calculate_address(effective_address, state);
+    if address < 0 { panic!(); }
+    let address = address as usize;
+
+    match width {
+        OpWidth::Byte => {
+            let value = value as u8;
+            mem.set(value , address);
+        }
+        OpWidth::Word => {
+            let le_bytes = value.to_le_bytes();
+            mem.set(le_bytes[0], address);
+            mem.set(le_bytes[1], address + 1);
+        }
+    }
+}
+
+fn simulate_instruction(state: &mut CpuState, memory: &mut Memory, instruction: Instruction) {
     match instruction {
         Instruction::ImmediateMovReg { reg, data } => {
             state.registers.write_reg(data, reg);
         }
         Instruction::ImmediateMovRegMem {
-            width: _,
+            width,
             reg_or_mem,
             data,
         } => {
             match reg_or_mem {
-                RegOrMem::Mem(ref _ea) => todo!(),
+                RegOrMem::Mem(ea) => {
+                    write_mem(data, memory, state, ea, width)
+                },
                 RegOrMem::Reg(access) => {
                     state.registers.write_reg(data, access);
                 }
             }
-            todo!()
         }
         Instruction::MovToFromRegMem { dir, reg, reg_or_mem } => match reg_or_mem {
-            RegOrMem::Mem(_) => todo!(),
+            RegOrMem::Mem(effective_address) => match dir {
+                Direction::FromRegister => {
+                    let v = state.registers.read_reg(reg);
+                    write_mem(v, memory, state, effective_address, reg.width);
+                },
+                Direction::ToRegister => {
+                    let m = read_mem(memory, state, effective_address, reg.width);
+                    state.registers.write_reg(m, reg);
+                }
+            },
             RegOrMem::Reg(reg_access) => match dir {
-                sim8086::ops::Direction::FromRegister => {
+                Direction::FromRegister => {
                     let v = state.registers.read_reg(reg);
                     state.registers.write_reg(v, reg_access)
                 }
-                sim8086::ops::Direction::ToRegister => {
+                Direction::ToRegister => {
                     let v = state.registers.read_reg(reg_access);
                     state.registers.write_reg(v, reg)
                 }
@@ -290,22 +397,39 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
         Instruction::SegmentRegisterMove { dir, seg_reg, reg_or_mem } => match reg_or_mem {
             RegOrMem::Mem(_) => todo!(),
             RegOrMem::Reg(reg_access) => match dir {
-                sim8086::ops::Direction::FromRegister => {
+                Direction::FromRegister => {
                     let value = state.registers.read_seg_reg(seg_reg);
                     state.registers.write_reg(value, reg_access);
                 }
-                sim8086::ops::Direction::ToRegister => {
+                Direction::ToRegister => {
                     let value = state.registers.read_reg(reg_access);
                     state.registers.write_seg_reg(seg_reg, value);
                 }
             },
         },
-        Instruction::ArithmeticFromToRegMem { op, dir, reg, reg_or_mem } => match reg_or_mem {
-            RegOrMem::Mem(_) => todo!(),
+        Instruction::ArithmeticFromToRegMem { op, dir, width, reg, reg_or_mem } => match reg_or_mem {
+            RegOrMem::Mem(ea) => match dir {
+                Direction::ToRegister => {
+                    let one = state.registers.read_reg(reg);
+                    let two = read_mem(memory, state, ea, width);
+                    let (result, flags) = evaluate_op(op, one, two);
+                    if store_result(op) {
+                        state.registers.write_reg(result, reg);
+                    }
+                    update_flags(state, (result, flags), Flags::arithmetic_flags());
+                }
+                Direction::FromRegister => {
+                    let one = read_mem(memory, state, ea, width);
+                    let two = state.registers.read_reg(reg);
+                    let (result, flags) = evaluate_op(op, one, two);
+                    if store_result(op) {
+                        write_mem(result, memory, state, ea, width);
+                    }
+                    update_flags(state, (result, flags), Flags::arithmetic_flags());
+                }
+            },
             RegOrMem::Reg(reg_access) => match dir {
-                sim8086::ops::Direction::FromRegister => {
-                    //TODO hmm, this matches Casey's code but still feels wrong
-                    //  read the spec to figure it out
+                Direction::FromRegister => {
                     let one = state.registers.read_reg(reg_access);
                     let two = state.registers.read_reg(reg);
                     let (result, flags) = evaluate_op(op, one, two);
@@ -314,7 +438,7 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
                     }
                     update_flags(state, (result, flags), Flags::arithmetic_flags());
                 }
-                sim8086::ops::Direction::ToRegister => {
+                Direction::ToRegister => {
                     let one = state.registers.read_reg(reg);
                     let two = state.registers.read_reg(reg_access);
                     let (result, flags) = evaluate_op(op, one, two);
@@ -325,8 +449,16 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
                 }
             },
         },
-        Instruction::ArithmeticImmediateToRegMem { op, width: _, data, reg_or_mem } => match reg_or_mem {
-            RegOrMem::Mem(_) => todo!(),
+        Instruction::ArithmeticImmediateToRegMem { op, width, data, reg_or_mem } => match reg_or_mem {
+            RegOrMem::Mem(ea) => {
+                let one = read_mem(memory, state, ea, width);
+                let two = data;
+                let (result, flags) = evaluate_op(op, one, two);
+                if store_result(op) {
+                    write_mem(result, memory, state, ea, width);
+                }
+                update_flags(state, (result, flags), Flags::arithmetic_flags());
+            },
             RegOrMem::Reg(reg_access) => {
                 let one = state.registers.read_reg(reg_access);
                 let two = data;
@@ -356,6 +488,33 @@ fn simulate_instruction(state: &mut CpuState, instruction: Instruction) {
             if !state.registers.flags.contains(Flags::Sign) {
                 state.registers.ip = state.registers.ip.overflowing_add_signed(offset as isize).0;
             }
+        },
+        Instruction::Loop(offset) => {
+            let cx = state.registers.cx() - 1;
+            state.registers.set_cx(cx);
+            if cx != 0 {
+                let (ip, overflow) = state.registers.ip.overflowing_add_signed(offset as isize);
+                if overflow { panic!(); }
+                state.registers.ip = ip;
+            }
+        },
+        Instruction::LoopWhileEqual(offset) => {
+            let cx = state.registers.cx() - 1;
+            state.registers.set_cx(cx);
+            if cx != 0 && state.registers.flags.contains(Flags::Zero) {
+                let (ip, overflow) = state.registers.ip.overflowing_add_signed(offset as isize);
+                if overflow { panic!(); }
+                state.registers.ip = ip;
+            };
+        },
+        Instruction::LoopWhileNotEqual(offset) => {
+            let cx = state.registers.cx() - 1;
+            state.registers.set_cx(cx);
+            if cx != 0 && !state.registers.flags.contains(Flags::Zero) {
+                let (ip, overflow) = state.registers.ip.overflowing_add_signed(offset as isize);
+                if overflow { panic!(); }
+                state.registers.ip = ip;
+            };
         },
         _ => todo!(),
     }

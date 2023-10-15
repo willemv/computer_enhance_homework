@@ -27,6 +27,12 @@ impl Memory {
         }
     }
 
+    pub fn set(&mut self, value: u8, offset: usize) {
+        if offset < self.data.len() {
+            self.data[offset] = value;
+        }
+    }
+
     pub fn dump<W: Write>(&self, write: &mut W) -> io::Result<()> {
         let mut written = 0;
         while written < self.data.len() {
