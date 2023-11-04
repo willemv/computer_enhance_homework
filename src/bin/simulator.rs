@@ -248,6 +248,7 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
     let mut memory = Memory::new();
     memory.copy_from_slice(&bytes, 0);
 
+    let mut total_clocks = 0;
     loop {
         let ip_before = state.registers.ip;
         let instruction = {
@@ -264,6 +265,9 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
         };
 
         print!("{:<20} ; ", instruction.encode(|disp| format!("{disp}")));
+        let current_clocks = estimate_clocks(&instruction);
+        total_clocks += current_clocks;
+        print!(" Clocks {:+} = {} | ", current_clocks, total_clocks);
         simulate_instruction(&mut state, &mut memory, instruction);
         println!();
     }
@@ -290,9 +294,107 @@ fn simulate<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
     let with_extension = path.with_extension("data");
     let x = with_extension.file_name().unwrap();
 
-    memory.dump(&mut File::create(x).unwrap());
+    memory.dump(&mut File::create(x).unwrap())?;
 
     Ok(())
+}
+
+fn estimate_ea(effective_address: &EffectiveAddress, transfers: usize) -> usize {
+    let displacement = effective_address.displacement != 0;
+    if !displacement {
+        match effective_address.base {
+            EffectiveAddressBase::Direct => {6} //should never happen, but let's keep it
+            EffectiveAddressBase::BxPlusSi => {7}
+            EffectiveAddressBase::BxPlusDi => {8}
+            EffectiveAddressBase::BpPlusSi => {8}
+            EffectiveAddressBase::BpPlusDi => {7}
+            EffectiveAddressBase::Si => {5}
+            EffectiveAddressBase::Di => {5}
+            EffectiveAddressBase::Bp => {5}
+            EffectiveAddressBase::Bx => {5}
+        }
+    } else {
+        let odd = effective_address.displacement % 2 == 1;
+        let penalty = if odd { 4 * transfers } else  {0};
+        let ea = match effective_address.base {
+            EffectiveAddressBase::Direct => {6}
+            EffectiveAddressBase::BxPlusSi => {11}
+            EffectiveAddressBase::BxPlusDi => {12}
+            EffectiveAddressBase::BpPlusSi => {12}
+            EffectiveAddressBase::BpPlusDi => {11}
+            EffectiveAddressBase::Si => {9}
+            EffectiveAddressBase::Di => {9}
+            EffectiveAddressBase::Bp => {9}
+            EffectiveAddressBase::Bx => {9}
+        };
+        ea + penalty
+    }
+}
+
+fn estimate_clocks(instruction: &Instruction) -> usize {
+    match instruction {
+        Instruction::MovToFromRegMem { dir, reg_or_mem, .. } => {
+            match reg_or_mem {
+                RegOrMem::Reg(_) => {2}
+                RegOrMem::Mem(ea) => {
+                    match dir {
+                        Direction::ToRegister => {8 + estimate_ea(ea, 1) }
+                        Direction::FromRegister => { 9 + estimate_ea(ea, 1)}
+                    }
+                }
+            }
+        }
+        Instruction::ImmediateMovRegMem { reg_or_mem, .. } => {
+            match reg_or_mem {
+                RegOrMem::Reg(_) => {4}
+                RegOrMem::Mem(ea) => {
+                    10 + estimate_ea(ea, 1)
+                }
+            }
+        }
+        Instruction::ImmediateMovReg { .. } => {4}
+        Instruction::AccumulatorMove { .. } => {10}
+        Instruction::SegmentRegisterMove { .. } => {todo!()}
+        Instruction::ArithmeticFromToRegMem { dir, reg_or_mem, .. } => {
+            match reg_or_mem {
+                RegOrMem::Reg(_) => {3}
+                RegOrMem::Mem(ea) => {
+                    match dir {
+                        Direction::ToRegister => {9 + estimate_ea(ea, 1)}
+                        Direction::FromRegister => {16 + estimate_ea(ea, 2)}
+                    }
+                }
+            }
+        }
+        Instruction::ArithmeticImmediateToRegMem { reg_or_mem, .. } => {
+            //TODO adjust for op
+            match reg_or_mem {
+                RegOrMem::Reg(_) => {4}
+                RegOrMem::Mem(ea) => {17 + estimate_ea(ea, 2)}
+            }
+        }
+        Instruction::ArithmeticImmediateToAccumulator { .. } => {4}
+        Instruction::JumpOnEqual(_) => {16}
+        Instruction::JumpOnLess(_) => {16}
+        Instruction::JumpOnNotGreater(_) => {16}
+        Instruction::JumpOnBelow(_) => {16}
+        Instruction::JumpOnNotAbove(_) => {16}
+        Instruction::JumpOnParity(_) => {16}
+        Instruction::JumpOnOverflow(_) => {16}
+        Instruction::JumpOnSign(_) => {16}
+        Instruction::JumpOnNotEqual(_) => {16}
+        Instruction::JumpOnNotLess(_) => {16}
+        Instruction::JumpOnGreater(_) => {16}
+        Instruction::JumpOnNotBelow(_) => {16}
+        Instruction::JumpOnAbove(_) => {16}
+        Instruction::JumpOnNoParity(_) => {16}
+        Instruction::JumpOnNoOverflow(_) => {16}
+        Instruction::JumpOnNotSign(_) => {16}
+        Instruction::Loop(_) => {16}
+        Instruction::LoopWhileEqual(_) => {16}
+        Instruction::LoopWhileNotEqual(_) => {16}
+        Instruction::JumpOnCxZero(_) => {16}
+    }
 }
 
 fn print_register(name: &str, value: i16) {
