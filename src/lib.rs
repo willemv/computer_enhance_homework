@@ -5,3 +5,5 @@ pub mod ops;
 pub mod memory;
 
 pub mod flag_registers;
+
+pub mod haversine;
