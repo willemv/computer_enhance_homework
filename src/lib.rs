@@ -7,3 +7,5 @@ pub mod memory;
 pub mod flag_registers;
 
 pub mod haversine;
+
+pub mod json;

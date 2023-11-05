@@ -6,6 +6,7 @@ use std::process::exit;
 use rand::prelude::*;
 
 use sim8086::haversine;
+use sim8086::haversine::EARTH_RADIUS;
 
 const USAGE: &'static str = "Usage: haversine_generator uniform|clustered seed point_count";
 const CLUSTER_COUNT: usize = 64;
@@ -20,6 +21,7 @@ fn usage() {
     println!("{}", USAGE);
     exit(1);
 }
+
 
 fn main() {
     let config = parse_args();
@@ -68,11 +70,11 @@ fn main() {
         assert!(y1 >= -90.0);
         assert!(y1 <= 90.0);
 
-        write!(&mut json, "  {{\"x0\": {x0}, \"y0\": {y0}, \"x1\": {x1}, \"y1\": {y1} }}");
+        write!(&mut json, "  {{\"x0\": {x0:.24}, \"y0\": {y0:.24}, \"x1\": {x1:.24}, \"y1\": {y1:.24} }}");
         if i < config.count - 1 { write!(&mut json, ","); }
         write!(&mut json, "\n");
 
-        let reference = haversine::reference_haversine(x0, y0, x1, y1, 6372.8f64);
+        let reference = haversine::reference_haversine(x0, y0, x1, y1, EARTH_RADIUS);
         sum += reference * coeff;
 
         reference_answers.write_all(reference.to_le_bytes().as_slice()).unwrap();
